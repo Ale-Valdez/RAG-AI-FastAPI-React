@@ -1,0 +1,65 @@
+- id: "1"
+  title: Identity and tenancy
+  description: >-
+    Cover CAP-1 in SPEC.md: a person authenticates as a local user of a tenant
+    and acts as that member for every later feature. Establish the /api/v1
+    {data, error} contract so every later story inherits it.
+  spec_checkpoint: true
+  done_checkpoint: false
+  invoke_dev_with: >-
+    python -m app.cli bootstrap creates one Tenant and one password-hashed
+    User from BOOTSTRAP_* env vars. Login issues a Bearer JWT with user_id
+    and tenant_id; HTTP builds Actor only from those claims. Missing or
+    invalid token is 401. Replace product-route FastAPI detail handlers with
+    the {data, error} envelope. Later stories inherit that contract.
+- id: "2"
+  title: Upload a PDF
+  description: >-
+    Cover CAP-2 and the pending half of CAP-3 in SPEC.md: a member uploads a
+    PDF and can list it while it waits. Status stays pending; delete, replace,
+    and re-ingest belong to story 3.
+  spec_checkpoint: false
+  done_checkpoint: false
+  invoke_dev_with: >-
+    Upload and list only. Enforce MAX_DOCUMENT_SIZE_MB. Status stays pending.
+    Add Garage with this story. Do not add delete, replace, or re-ingest routes.
+- id: "3"
+  title: Ready, replace, remove
+  description: >-
+    Cover the CAP-3 status writer, CAP-4, and all of CAP-8 in SPEC.md. A PDF
+    becomes ready, and delete or re-ingest keeps SQL, S3, and Qdrant consistent
+    for the same document_id.
+  spec_checkpoint: false
+  done_checkpoint: true
+  invoke_dev_with: >-
+    This story owns delete, replace, re-ingest, and cross-store consistency.
+    ProcessDocument is the only writer of processing, ready, and failed.
+    Enforce MAX_DOCUMENT_PAGES and MAX_CONCURRENT_INGESTIONS_PER_TENANT.
+    Delete Qdrant points for that document_id before upsert. Delete removes
+    the SQL row, the S3 object, and those points. Re-ingest reuses document_id.
+- id: "4"
+  title: Retrieval
+  description: >-
+    Cover CAP-5 in SPEC.md: retrieval returns only the actor tenant's ready
+    chunks, limited by RAG_TOP_K and RAG_SCORE_THRESHOLD. The retrieve port
+    and the Qdrant adapter accept an optional document_id before any chat route exists.
+  spec_checkpoint: false
+  done_checkpoint: false
+  invoke_dev_with: >-
+    Put document_id filtering in the retrieve port and the Qdrant adapter.
+    Chat is the first product caller. Include a two-tenant test. Do not add
+    a chat HTTP route. Query the existing chunks collection.
+- id: "5"
+  title: Grounded chat
+  description: >-
+    Cover CAP-6 and CAP-7 in SPEC.md: a member asks a question and the grounded
+    answer, SourceRefs, and thread are persisted. The done check is the
+    authenticated success-signal path, including Tenant B failing to retrieve
+    Tenant A's chunks.
+  spec_checkpoint: true
+  done_checkpoint: true
+  invoke_dev_with: >-
+    The done checkpoint must validate the complete authenticated end-to-end
+    flow: tenant, READY document, question, tenant-scoped retrieval, grounded
+    answer, SourceRefs, persisted conversation. The cross-tenant check must
+    verify that Tenant B cannot retrieve Tenant A's document or chunks.

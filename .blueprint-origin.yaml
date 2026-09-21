@@ -1,0 +1,8 @@
+factory: project-blueprint
+blueprint: ai-rag-fastapi-react
+version: '1.0'
+project:
+  name: AI-RAG
+  description: AI Knowledge Assistant grounded in organization documents.
+  slug: ai-rag
+variant: full

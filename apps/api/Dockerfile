@@ -1,0 +1,13 @@
+FROM python:3.12-bookworm-slim
+
+RUN useradd --create-home --uid 10001 appuser
+WORKDIR /app
+
+COPY pyproject.toml ./
+COPY src ./src
+RUN pip install --no-cache-dir --upgrade pip \
+    && pip install --no-cache-dir .
+
+USER appuser
+EXPOSE 8000
+CMD ["uvicorn", "app.bootstrap.http:app", "--host", "0.0.0.0", "--port", "8000"]

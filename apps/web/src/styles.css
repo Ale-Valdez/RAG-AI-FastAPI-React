@@ -1,0 +1,62 @@
+:root {
+  color: #10233a;
+  background: #f4f7fb;
+  font-family: "Segoe UI", sans-serif;
+}
+
+body {
+  margin: 0;
+}
+
+.shell {
+  max-width: 52rem;
+  margin: 0 auto;
+  padding: 2rem 1.25rem 4rem;
+}
+
+header h1 {
+  margin: 0.2rem 0 0.5rem;
+}
+
+.eyebrow,
+.lede,
+.muted {
+  color: #4d6075;
+}
+
+nav {
+  display: flex;
+  gap: 0.75rem;
+  margin-top: 1rem;
+}
+
+nav a {
+  color: #1f4e79;
+  text-decoration: none;
+  padding: 0.35rem 0;
+}
+
+nav a.active {
+  font-weight: 700;
+  border-bottom: 2px solid #1f4e79;
+}
+
+.panel,
+.state {
+  background: white;
+  border: 1px solid #d7e1ec;
+  border-radius: 12px;
+  padding: 1.25rem;
+  margin-top: 1.25rem;
+}
+
+.error {
+  color: #9b1c1c;
+}
+
+.probe {
+  display: flex;
+  justify-content: space-between;
+  padding: 0.35rem 0;
+  border-bottom: 1px solid #edf2f7;
+}
