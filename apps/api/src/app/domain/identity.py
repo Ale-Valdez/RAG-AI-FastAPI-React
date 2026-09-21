@@ -19,3 +19,4 @@ class User:
     id: UserId
     tenant_id: TenantId
     email: str
+    password_hash: str

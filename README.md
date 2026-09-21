@@ -18,9 +18,20 @@ cp .env.example .env
 docker compose up --build
 ```
 
+Compose starts the services; it does **not** run Alembic migrations. Apply schema
+before bootstrap:
+
+```bash
+cd apps/api && alembic upgrade head
+# then, with BOOTSTRAP_* set:
+python -m app.cli bootstrap
+```
+
 - Web: http://localhost:5173
 - API health: http://localhost:8000/api/health
 - API ready: http://localhost:8000/api/ready
+- Login: `POST /api/v1/auth/login`
+- Current member: `GET /api/v1/me`
 
 API and domain tests (no Docker):
 
@@ -33,14 +44,15 @@ pytest
 ## What this seed includes
 
 - Compose services: `postgres`, `qdrant`, `redis`, `api`, `worker`, `web`
-- One wired slice: **health / readiness**
+- Wired slices: **health / readiness** and **identity / tenancy** (bootstrap CLI, Bearer JWT, `/api/v1` envelope)
+- Alembic owns the `tenants` and `users` tables (this identity slice); later document tables will add migrations too
 - Domain model for tenant, user, document, and conversation
 - React features for health, documents, and chat (documents/chat are empty states)
 
 ## Next slices
 
-1. Identity and tenancy (auth, tenant from authenticated context)
-2. Documents (PDF upload; add SQLAlchemy/Postgres persistence here)
+1. ~~Identity and tenancy (auth, tenant from authenticated context)~~ (in progress / this slice)
+2. Documents (PDF upload; more SQLAlchemy/Postgres tables)
 3. Ingestion (Celery: extract → chunk → embed)
 4. Retrieval (Qdrant filter by `tenant_id`)
 5. Chat (grounded answers + citations)

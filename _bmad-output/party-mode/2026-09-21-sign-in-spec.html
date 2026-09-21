@@ -1,0 +1,129 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1" />
+<title>21 Sep 2026 — The lock on the cabinet</title>
+<style>
+  :root {
+    --ink: #f4efe4;
+    --muted: #b7ab98;
+    --bg: #14110e;
+    --card: #221c17;
+    --line: #3a3128;
+    --amber: #e3a008;
+    --rose: #e07a5f;
+  }
+  * { box-sizing: border-box; }
+  body {
+    margin: 0;
+    min-height: 100vh;
+    color: var(--ink);
+    font-family: "Iowan Old Style", Palatino, Georgia, serif;
+    background:
+      radial-gradient(ellipse at 50% 0%, #3a2a18 0%, transparent 55%),
+      var(--bg);
+  }
+  main { max-width: 820px; margin: 0 auto; padding: 48px 24px 80px; }
+  header { text-align: center; margin-bottom: 36px; }
+  .date { letter-spacing: 0.22em; text-transform: uppercase; font-size: 12px; color: var(--amber); font-family: ui-sans-serif, system-ui, sans-serif; }
+  h1 { font-weight: 500; font-size: 40px; margin: 10px 0 8px; }
+  .lede { color: var(--muted); margin: 0 auto; max-width: 46ch; }
+  .lamp {
+    width: 88px; height: 28px; margin: 0 auto 8px;
+  }
+  .lamp .glow {
+    transform-origin: 44px 8px;
+    animation: sway 4.5s ease-in-out infinite;
+  }
+  @keyframes sway {
+    0%, 100% { transform: rotate(-3deg); }
+    50% { transform: rotate(3deg); }
+  }
+  ol { list-style: none; padding: 0; margin: 0; display: grid; gap: 14px; }
+  li {
+    background: var(--card);
+    border: 1px solid var(--line);
+    border-radius: 16px;
+    padding: 16px 18px 14px;
+    animation: rise 0.7s ease both;
+  }
+  li:nth-child(2) { animation-delay: 0.08s; }
+  li:nth-child(3) { animation-delay: 0.16s; }
+  li:nth-child(4) { animation-delay: 0.24s; }
+  li:nth-child(5) { animation-delay: 0.32s; }
+  li:nth-child(6) { animation-delay: 0.4s; }
+  li:nth-child(7) { animation-delay: 0.48s; }
+  @keyframes rise {
+    from { opacity: 0; transform: translateY(10px); }
+    to { opacity: 1; transform: none; }
+  }
+  .who { font-family: ui-sans-serif, system-ui, sans-serif; font-size: 13px; letter-spacing: 0.04em; color: var(--amber); margin-bottom: 6px; }
+  .line { margin: 0; font-size: 18px; line-height: 1.45; }
+  .aside { color: var(--muted); font-size: 15px; margin-top: 8px; }
+  footer {
+    margin-top: 28px;
+    border-top: 1px solid var(--line);
+    padding-top: 16px;
+    color: var(--muted);
+    font-family: ui-sans-serif, system-ui, sans-serif;
+    font-size: 13px;
+  }
+  footer strong { color: var(--ink); font-weight: 600; }
+</style>
+</head>
+<body>
+<main>
+  <header>
+    <svg class="lamp" viewBox="0 0 88 28" aria-hidden="true">
+      <g class="glow">
+        <ellipse cx="44" cy="16" rx="22" ry="8" fill="#e3a008" opacity="0.35" />
+        <path d="M28 10h32l-6 12H34z" fill="#f4efe4" />
+      </g>
+      <path d="M44 4v6" stroke="#b7ab98" stroke-width="1.5" />
+    </svg>
+    <p class="date">21 Sep 2026</p>
+    <h1>The lock on the cabinet</h1>
+    <p class="lede">Ale closed the room. The sign-in spec stayed as written.</p>
+  </header>
+  <ol>
+    <li>
+      <div class="who">📋 John · Product</div>
+      <p class="line">“Nobody sees a cited answer. This is a lock, not the demo.”</p>
+      <p class="aside">He left still wanting the moment a person asks and sees the source.</p>
+    </li>
+    <li>
+      <div class="who">🎨 Sally · UX</div>
+      <p class="line">“The member never sits down. Don’t call a command sign-in.”</p>
+      <p class="aside">The screen stayed cut. The chair stayed empty.</p>
+    </li>
+    <li>
+      <div class="who">🏗️ Winston · Architecture</div>
+      <p class="line">“Fifteen days, no revocation. ‘For now’ is a debt.”</p>
+      <p class="aside">He wrote it on the board. He did not win a shorter life.</p>
+    </li>
+    <li>
+      <div class="who">💻 Amelia · Engineering</div>
+      <p class="line">“Refuse. Non-zero. No new row. I will not improve that in the files.”</p>
+    </li>
+    <li>
+      <div class="who">⚡ Victor · Strategy</div>
+      <p class="line">“You’re polishing the lock.”</p>
+      <p class="aside">The cabinet jab landed, then got shut down.</p>
+    </li>
+    <li>
+      <div class="who">🔬 Dr. Quinn · Problems</div>
+      <p class="line">“The weak joint is the second email.”</p>
+      <p class="aside">Ale answered: refuse.</p>
+    </li>
+    <li>
+      <div class="who">🛑 Killjoy · Walked in</div>
+      <p class="line">“Bootstrap is settled. The screen was already cut. Stop walking those loops.”</p>
+    </li>
+  </ol>
+  <footer>
+    <p><strong>Left standing.</strong> A new email does not join an existing tenant. The token lives 15 days and nothing kills it early. The sign-in screen waits.</p>
+  </footer>
+</main>
+</body>
+</html>

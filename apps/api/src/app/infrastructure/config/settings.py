@@ -11,6 +11,9 @@ class Settings(BaseSettings):
     qdrant_url: str = "http://localhost:6333"
     openai_api_key: str = ""
     jwt_secret: str = "change-me"
+    bootstrap_tenant_name: str = ""
+    bootstrap_admin_email: str = ""
+    bootstrap_admin_password: str = ""
 
     @property
     def cors_origins(self) -> list[str]:
