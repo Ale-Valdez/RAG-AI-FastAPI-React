@@ -2,15 +2,14 @@ from __future__ import annotations
 
 from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
-from sqlalchemy.orm import Session, sessionmaker
-
 from app.application.auth.get_current_member import GetCurrentMember
 from app.application.auth.login import Login
 from app.application.auth.models import CurrentMember, LoginCommand, LoginResult
 from app.application.health.get_health import GetHealth
 from app.application.health.get_readiness import GetReadiness, ReadinessProbe
+from app.bootstrap.persistence import LazySessionFactory
 from app.domain.actor import Actor
-from app.infrastructure.auth.jwt import JwtService
+from app.infrastructure.auth.jwt import JwtService, require_signing_secret
 from app.infrastructure.auth.passwords import Argon2PasswordHasher
 from app.infrastructure.config.settings import Settings, load_settings
 from app.infrastructure.health.postgres_probe import PostgresProbe
@@ -23,7 +22,7 @@ from app.infrastructure.http.auth_router import (
 )
 from app.infrastructure.http.error_handlers import register_error_handlers
 from app.infrastructure.http.health_router import build_health_router
-from app.infrastructure.persistence.session import create_db_engine, create_session_factory
+from app.infrastructure.persistence.session import session_scope
 from app.infrastructure.persistence.user_repository import SqlAlchemyUserRepository
 
 
@@ -35,58 +34,30 @@ def default_probes(settings: Settings) -> list[ReadinessProbe]:
     ]
 
 
-class _LazySessionFactory:
-    """Builds the SQLAlchemy engine on first session open, not at app construction."""
-
-    def __init__(self, database_url: str) -> None:
-        self._database_url = database_url
-        self._factory: sessionmaker[Session] | None = None
-
-    def __call__(self) -> Session:
-        if self._factory is None:
-            self._factory = create_session_factory(create_db_engine(self._database_url))
-        return self._factory()
-
-
 class SessionBoundLogin:
-    def __init__(self, open_session: _LazySessionFactory, hasher: Argon2PasswordHasher) -> None:
+    def __init__(self, open_session: LazySessionFactory, hasher: Argon2PasswordHasher) -> None:
         self._open_session = open_session
         self._hasher = hasher
 
     def execute(self, command: LoginCommand) -> LoginResult:
-        session = self._open_session()
-        try:
-            result = Login(SqlAlchemyUserRepository(session), self._hasher).execute(command)
-            session.commit()
-            return result
-        except Exception:
-            session.rollback()
-            raise
-        finally:
-            session.close()
+        with session_scope(self._open_session) as session:
+            return Login(SqlAlchemyUserRepository(session), self._hasher).execute(command)
 
 
 class SessionBoundGetCurrentMember:
-    def __init__(self, open_session: _LazySessionFactory) -> None:
+    def __init__(self, open_session: LazySessionFactory) -> None:
         self._open_session = open_session
 
     def execute(self, actor: Actor) -> CurrentMember:
-        session = self._open_session()
-        try:
-            result = GetCurrentMember(SqlAlchemyUserRepository(session)).execute(actor)
-            session.commit()
-            return result
-        except Exception:
-            session.rollback()
-            raise
-        finally:
-            session.close()
+        with session_scope(self._open_session) as session:
+            return GetCurrentMember(SqlAlchemyUserRepository(session)).execute(actor)
 
 
 def _default_auth(
     settings: Settings,
 ) -> tuple[SessionBoundLogin, SessionBoundGetCurrentMember, JwtService]:
-    open_session = _LazySessionFactory(settings.database_url)
+    require_signing_secret(settings.jwt_secret)
+    open_session = LazySessionFactory(settings.database_url)
     return (
         SessionBoundLogin(open_session, Argon2PasswordHasher()),
         SessionBoundGetCurrentMember(open_session),

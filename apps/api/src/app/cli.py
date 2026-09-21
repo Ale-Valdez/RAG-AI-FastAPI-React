@@ -5,9 +5,10 @@ import sys
 
 from app.application.auth.bootstrap_tenant import BootstrapConflictError, BootstrapTenant
 from app.application.auth.models import BootstrapCommand
+from app.bootstrap.persistence import LazySessionFactory
 from app.infrastructure.auth.passwords import Argon2PasswordHasher
 from app.infrastructure.config.settings import load_settings
-from app.infrastructure.persistence.session import create_db_engine, create_session_factory, session_scope
+from app.infrastructure.persistence.session import session_scope
 from app.infrastructure.persistence.tenant_repository import SqlAlchemyTenantRepository
 from app.infrastructure.persistence.user_repository import SqlAlchemyUserRepository
 
@@ -16,8 +17,8 @@ def _require_bootstrap_settings() -> tuple[str, str, str]:
     settings = load_settings()
     tenant_name = settings.bootstrap_tenant_name.strip()
     admin_email = settings.bootstrap_admin_email.strip()
-    admin_password = settings.bootstrap_admin_password
-    if not tenant_name or not admin_email or not admin_password.strip():
+    admin_password = settings.bootstrap_admin_password.strip()
+    if not tenant_name or not admin_email or not admin_password:
         print(
             "BOOTSTRAP_TENANT_NAME, BOOTSTRAP_ADMIN_EMAIL, and BOOTSTRAP_ADMIN_PASSWORD are required",
             file=sys.stderr,
@@ -29,10 +30,9 @@ def _require_bootstrap_settings() -> tuple[str, str, str]:
 def cmd_bootstrap() -> int:
     tenant_name, admin_email, admin_password = _require_bootstrap_settings()
     settings = load_settings()
-    engine = create_db_engine(settings.database_url)
-    factory = create_session_factory(engine)
+    sessions = LazySessionFactory(settings.database_url)
     try:
-        with session_scope(factory) as session:
+        with session_scope(sessions) as session:
             use_case = BootstrapTenant(
                 SqlAlchemyTenantRepository(session),
                 SqlAlchemyUserRepository(session),

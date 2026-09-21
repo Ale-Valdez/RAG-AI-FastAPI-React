@@ -3,12 +3,18 @@ from __future__ import annotations
 from datetime import UTC, datetime, timedelta
 
 import jwt
+import pytest
 from fastapi.testclient import TestClient
 
 from app.application.auth.bootstrap_tenant import BootstrapTenant
 from app.application.auth.get_current_member import GetCurrentMember
 from app.application.auth.login import Login
 from app.application.auth.models import BootstrapCommand, CurrentMember
+from app.infrastructure.auth.passwords import Argon2PasswordHasher
+from app.infrastructure.persistence.base import Base
+from app.infrastructure.persistence.session import create_db_engine, create_session_factory
+from app.infrastructure.persistence.tenant_repository import SqlAlchemyTenantRepository
+from app.infrastructure.persistence.user_repository import SqlAlchemyUserRepository
 from app.bootstrap.create_app import create_app
 from app.domain.actor import Actor
 from app.domain.errors import DomainError, NotFoundError, TenantIsolationError
@@ -162,6 +168,109 @@ def test_health_stays_outside_envelope() -> None:
     assert health.status_code == 200
     assert "error" not in health.json()
     assert health.json()["status"] == "ok"
+
+
+def test_token_with_bad_claim_shape_is_unauthenticated() -> None:
+    client, _, _, _ = _app_with_user()
+    secret = "test-secret-key-at-least-32-bytes!!"
+    exp = datetime.now(UTC) + timedelta(minutes=5)
+    payloads = (
+        {"exp": exp},
+        {"user_id": "", "tenant_id": "t1", "exp": exp},
+        {"user_id": "u1", "tenant_id": "   ", "exp": exp},
+        {"user_id": 1, "tenant_id": "t1", "exp": exp},
+    )
+    for payload in payloads:
+        token = jwt.encode(payload, secret, algorithm="HS256")
+        response = client.get("/api/v1/me", headers={"Authorization": f"Bearer {token}"})
+        assert response.status_code == 401
+        assert response.json()["error"]["code"] == "UNAUTHENTICATED"
+
+
+def test_framework_and_unhandled_product_errors_use_envelope() -> None:
+    client, _, _, _ = _app_with_user()
+    missing = client.get("/api/v1/does-not-exist")
+    assert missing.status_code == 404
+    assert missing.json()["error"]["code"] == "NOT_FOUND"
+    assert "detail" not in missing.json()
+
+    wrong_method = client.get("/api/v1/auth/login")
+    assert wrong_method.status_code == 405
+    assert wrong_method.json()["error"]["code"] == "METHOD_NOT_ALLOWED"
+    assert "detail" not in wrong_method.json()
+
+    outside = client.get("/api/does-not-exist")
+    assert outside.status_code == 404
+    assert "detail" in outside.json()
+
+    class Boom:
+        def execute(self, command: object) -> object:
+            raise RuntimeError("db down")
+
+    secret = "test-secret-key-at-least-32-bytes!!"
+    crashing = TestClient(
+        create_app(
+            settings=Settings(jwt_secret=secret),
+            readiness_probes=[],
+            login=Boom(),
+            get_current_member=GetCurrentMember(InMemoryUserRepository()),
+            jwt_service=JwtService(secret),
+        ),
+        raise_server_exceptions=False,
+    )
+    failed = crashing.post(
+        "/api/v1/auth/login",
+        json={"email": "admin@example.com", "password": "secret"},
+    )
+    assert failed.status_code == 500
+    body = failed.json()
+    assert body["data"] is None
+    assert body["error"]["code"] == "INTERNAL_ERROR"
+    assert "db down" not in failed.text
+
+
+def test_default_session_login_and_me(tmp_path) -> None:  # noqa: ANN001
+    database_url = f"sqlite:///{tmp_path / 'app.sqlite'}"
+    engine = create_db_engine(database_url)
+    Base.metadata.create_all(engine)
+    factory = create_session_factory(engine)
+    hasher = Argon2PasswordHasher()
+    with factory() as session:
+        BootstrapTenant(
+            SqlAlchemyTenantRepository(session),
+            SqlAlchemyUserRepository(session),
+            hasher,
+        ).execute(
+            BootstrapCommand(
+                tenant_name="Demo",
+                admin_email="admin@example.com",
+                admin_password="secret-secret",
+            )
+        )
+        session.commit()
+
+    secret = "test-secret-key-at-least-32-bytes!!"
+    client = TestClient(
+        create_app(
+            settings=Settings(database_url=database_url, jwt_secret=secret),
+            readiness_probes=[],
+        )
+    )
+    login = client.post(
+        "/api/v1/auth/login",
+        json={"email": "admin@example.com", "password": "secret-secret"},
+    )
+    assert login.status_code == 200
+    token = login.json()["data"]["access_token"]
+    me = client.get("/api/v1/me", headers={"Authorization": f"Bearer {token}"})
+    assert me.status_code == 200
+    assert me.json()["data"]["email"] == "admin@example.com"
+
+
+def test_create_app_refuses_placeholder_jwt_secret() -> None:
+    for secret in ("change-me", "", "   "):
+        with pytest.raises(RuntimeError, match="JWT_SECRET"):
+            create_app(settings=Settings(jwt_secret=secret), readiness_probes=[])
 
 
 def test_product_validation_error_uses_envelope() -> None:

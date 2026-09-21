@@ -6,6 +6,7 @@ import pytest
 
 from app.cli import main
 from app.domain.tenancy import TenantId
+from app.infrastructure.auth.passwords import Argon2PasswordHasher
 from tests.fakes import InMemoryTenantRepository, InMemoryUserRepository
 
 
@@ -48,8 +49,7 @@ def _patch_store(monkeypatch: pytest.MonkeyPatch) -> tuple[InMemoryTenantReposit
     def _scope(_factory):  # noqa: ANN001
         yield None
 
-    monkeypatch.setattr("app.cli.create_db_engine", lambda _url: object())
-    monkeypatch.setattr("app.cli.create_session_factory", lambda _engine: object())
+    monkeypatch.setattr("app.cli.LazySessionFactory", lambda _url: object())
     monkeypatch.setattr("app.cli.session_scope", _scope)
     monkeypatch.setattr(
         "app.cli.SqlAlchemyTenantRepository",
@@ -100,6 +100,21 @@ def test_bootstrap_cli_creates_then_ignores_same_email(monkeypatch: pytest.Monke
     assert len(tenants.items) == 1
     assert len(users.items) == 1
     assert next(iter(users.items.values())).password_hash == stored_hash
+
+
+def test_bootstrap_cli_strips_password(monkeypatch: pytest.MonkeyPatch) -> None:
+    _tenants, users = _patch_store(monkeypatch)
+    _set_bootstrap_env(
+        monkeypatch,
+        name="Demo Company",
+        email="admin@example.com",
+        password="secret-secret  ",
+    )
+    assert main(["bootstrap"]) == 0
+    stored_hash = next(iter(users.items.values())).password_hash
+    hasher = Argon2PasswordHasher()
+    assert hasher.verify("secret-secret", stored_hash) is True
+    assert hasher.verify("secret-secret  ", stored_hash) is False
 
 
 def test_bootstrap_cli_refuses_new_email(monkeypatch: pytest.MonkeyPatch) -> None:

@@ -3,9 +3,15 @@ from __future__ import annotations
 from fastapi import FastAPI, Request
 from fastapi.exceptions import RequestValidationError
 from fastapi.responses import JSONResponse
+from starlette.exceptions import HTTPException as StarletteHTTPException
 
 from app.domain.errors import DomainError, NotFoundError, TenantIsolationError, UnauthenticatedError
 from app.infrastructure.http.responses.api_response import error_body
+
+_HTTP_STATUS_ENVELOPE = {
+    404: ("NOT_FOUND", "Not found"),
+    405: ("METHOD_NOT_ALLOWED", "Method not allowed"),
+}
 
 
 def _is_product_route(request: Request) -> bool:
@@ -57,3 +63,22 @@ def register_error_handlers(app: FastAPI) -> None:
                 status_code=409,
             )
         return JSONResponse({"detail": str(exc)}, status_code=409)
+
+    @app.exception_handler(StarletteHTTPException)
+    async def http_exception(request: Request, exc: StarletteHTTPException) -> JSONResponse:
+        if _is_product_route(request):
+            code, message = _HTTP_STATUS_ENVELOPE.get(
+                exc.status_code, ("HTTP_ERROR", "Request failed")
+            )
+            return JSONResponse(error_body(code, message), status_code=exc.status_code)
+        detail = exc.detail if isinstance(exc.detail, str) else "Request failed"
+        return JSONResponse({"detail": detail}, status_code=exc.status_code)
+
+    @app.exception_handler(Exception)
+    async def unhandled(request: Request, exc: Exception) -> JSONResponse:
+        if _is_product_route(request):
+            return JSONResponse(
+                error_body("INTERNAL_ERROR", "Internal server error"),
+                status_code=500,
+            )
+        return JSONResponse({"detail": "Internal Server Error"}, status_code=500)

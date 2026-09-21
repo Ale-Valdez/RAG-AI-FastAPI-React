@@ -1,6 +1,6 @@
 from __future__ import annotations
 
-from collections.abc import Generator
+from collections.abc import Callable, Generator
 from contextlib import contextmanager
 
 from sqlalchemy import create_engine
@@ -15,7 +15,10 @@ def to_sqlalchemy_url(database_url: str) -> str:
 
 
 def create_db_engine(database_url: str) -> Engine:
-    return create_engine(to_sqlalchemy_url(database_url), pool_pre_ping=True)
+    url = to_sqlalchemy_url(database_url)
+    if url.startswith("sqlite"):
+        return create_engine(url, connect_args={"check_same_thread": False})
+    return create_engine(url, pool_pre_ping=True)
 
 
 def create_session_factory(engine: Engine) -> sessionmaker[Session]:
@@ -23,8 +26,8 @@ def create_session_factory(engine: Engine) -> sessionmaker[Session]:
 
 
 @contextmanager
-def session_scope(factory: sessionmaker[Session]) -> Generator[Session, None, None]:
-    session = factory()
+def session_scope(open_session: Callable[[], Session]) -> Generator[Session, None, None]:
+    session = open_session()
     try:
         yield session
         session.commit()

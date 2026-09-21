@@ -15,16 +15,22 @@ the `project-blueprint` factory.
 
 ```bash
 cp .env.example .env
+```
+
+Set `JWT_SECRET` in `.env` to a long random value. The API refuses to start when
+that variable is empty or `change-me`.
+
+```bash
 docker compose up --build
 ```
 
 Compose starts the services; it does **not** run Alembic migrations. Apply schema
-before bootstrap:
+before bootstrap. Run both inside the `api` container so they use the Compose
+network and the variables from `.env`:
 
 ```bash
-cd apps/api && alembic upgrade head
-# then, with BOOTSTRAP_* set:
-python -m app.cli bootstrap
+docker compose exec api alembic upgrade head
+docker compose exec api python -m app.cli bootstrap
 ```
 
 - Web: http://localhost:5173

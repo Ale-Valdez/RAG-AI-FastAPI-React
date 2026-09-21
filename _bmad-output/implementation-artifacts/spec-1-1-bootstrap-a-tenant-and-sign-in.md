@@ -2,7 +2,7 @@
 title: 'Bootstrap a tenant and sign in'
 type: 'feature'
 created: '2026-09-21'
-status: 'done'
+status: 'in-progress'
 route: 'dispatch'
 baseline_commit: 'fc111746bb33610fe3d97db5e6659b1c6b041a19'
 review_loop_iteration: 0
@@ -156,3 +156,32 @@ HTTP tests inject fakes through `create_app`, as health tests inject probes. Per
 
 **Commands:**
 - `cd apps/api && python -m pytest` — expected: existing health tests pass; auth use-case and HTTP tests pass without Docker
+
+### Review Findings
+
+- [x] [Review][Patch] Document `docker compose exec api` for Alembic and bootstrap [README.md:25]
+- [x] [Review][Patch] Envelope framework HTTP errors and unhandled exceptions on `/api/v1` (`404` `NOT_FOUND`, `405` `METHOD_NOT_ALLOWED`, `500` `INTERNAL_ERROR`) [apps/api/src/app/infrastructure/http/error_handlers.py:15]
+- [x] [Review][Patch] Extract a shared persistence factory and call it from the CLI and the HTTP app [apps/api/src/app/cli.py:32]
+- [x] [Review][Patch] Refuse startup when `jwt_secret` is `change-me`, and replace the example with a placeholder operators must set [apps/api/src/app/infrastructure/config/settings.py:13]
+- [x] [Review][Patch] Strip `BOOTSTRAP_ADMIN_PASSWORD` before hashing [apps/api/src/app/cli.py:19]
+- [x] [Review][Patch] HTTP test for default SessionBound login and `/me` [apps/api/src/app/bootstrap/create_app.py:51]
+- [x] [Review][Patch] Test Alembic revision 0001 against the ORM schema [apps/api/alembic/versions/0001_tenants_users.py:22]
+- [x] [Review][Patch] Test JWT rejection of missing or blank claims [apps/api/src/app/infrastructure/auth/jwt.py:32]
+- [x] [Review][Patch] Test `session_scope` commit and rollback [apps/api/src/app/infrastructure/persistence/session.py:30]
+- [x] [Review][Patch] Replace the absolute path in deferred-work.md [_bmad-output/implementation-artifacts/deferred-work.md:1]
+- [x] [Review][Defer] `http-envelope.md` does not list `VALIDATION_ERROR` [apps/api/src/app/infrastructure/http/error_handlers.py:20] — deferred: the fix edits the shared envelope spec, not this story's code
+
+#### Rejected
+
+- false — Compose has no migrate step, so a fresh `docker compose up` 500s on login. The spec implementation notes and the README already say Compose does not apply migrations.
+- false — `GetCurrentMember` does not filter the query by `actor.tenant_id`. It loads by user id, then `assert_same_tenant` before returning, so a cross-tenant actor does not receive the member.
+- false — Spec `status: done`, sprint `review`, and README "in progress" disagree. Aligning the spec status edits the spec under review. Sprint `review` and the README line match a story that is not done yet.
+- low — `_LazySessionFactory` can build two engines if the first auth requests overlap. Everyday startup is a single request. Closing it needs a lock.
+- false — `Argon2PasswordHasher.verify` only catches `VerifyMismatchError`, so a corrupt hash 500s on login. Stored hashes come from `hash()`. Login never feeds `verify` a hash this slice did not write.
+- low — An HS256 token with no `exp` verifies. Issued tokens always set `exp`. Omitting `exp` already requires the signing secret, which can also set a far-future `exp`. Requiring `exp` is an extra guard.
+- low — Two bootstraps can both pass the empty-store check. Everyday use is one operator command. A duplicate tenant needs two different emails at once. Closing the race needs a lock or a singleton constraint.
+- false — `BootstrapTenant.execute` can persist blank fields. `python -m app.cli bootstrap` rejects blank env before `execute`.
+- low — A login email with surrounding spaces fails lookup. This story has no sign-in form. Stripping the JSON email is an extra branch.
+- false — `postgres://` is not rewritten to `postgresql+psycopg`. Compose, the settings default, and `.env.example` use `postgresql://`, which `to_sqlalchemy_url` already rewrites.
+- false — A tenant name longer than 255 raises `DataError`. `session_scope` rolls the transaction back, so no row is kept. That is the column limit working.
+- false — Same corrupt-hash 500 as the Argon2 finding, from the verification layer's other findings.
