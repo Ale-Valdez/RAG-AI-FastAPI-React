@@ -10,6 +10,11 @@ from app.domain.errors import UnauthenticatedError
 ACCESS_TOKEN_TTL = timedelta(days=15)
 
 
+def require_signing_secret(secret: str) -> None:
+    if not secret.strip() or secret.strip() == "change-me":
+        raise RuntimeError("JWT_SECRET must be set to a non-placeholder value")
+
+
 class JwtService:
     def __init__(self, secret: str) -> None:
         self._secret = secret

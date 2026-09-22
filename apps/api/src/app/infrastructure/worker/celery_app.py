@@ -7,5 +7,6 @@ celery_app = Celery(
     "ai_rag",
     broker=settings.redis_url,
     backend=settings.redis_url,
+    include=["app.infrastructure.worker.tasks"],
 )
 celery_app.conf.task_default_queue = "ai-rag-ingestion"

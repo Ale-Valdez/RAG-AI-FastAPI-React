@@ -16,3 +16,7 @@ class UnauthenticatedError(DomainError):
 
 class InvalidDocumentTransition(DomainError):
     """Raised when a document status change is not allowed."""
+
+
+class InvalidDocument(DomainError):
+    """Raised when an upload fails document validation rules."""

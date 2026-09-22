@@ -9,9 +9,11 @@ from sqlalchemy import create_engine, inspect
 from sqlalchemy.orm import Session, sessionmaker
 from sqlalchemy.pool import StaticPool
 
+from app.domain.documents import Document, DocumentStatus
 from app.domain.identity import User, UserId
 from app.domain.tenancy import Tenant, TenantId
 from app.infrastructure.persistence.base import Base
+from app.infrastructure.persistence.document_repository import SqlAlchemyDocumentRepository
 from app.infrastructure.persistence.models import TenantRow
 from app.infrastructure.persistence.session import create_session_factory, session_scope, to_sqlalchemy_url
 from app.infrastructure.persistence.tenant_repository import SqlAlchemyTenantRepository
@@ -83,6 +85,42 @@ def test_session_scope_commits_and_rolls_back() -> None:
         assert session.get(TenantRow, "t1") is not None
 
 
+def test_document_repository_save_and_tenant_scoped_list() -> None:
+    engine = create_engine("sqlite:///:memory:")
+    Base.metadata.create_all(engine)
+    factory = sessionmaker(bind=engine, autoflush=False, autocommit=False)
+
+    with factory() as session:
+        documents = SqlAlchemyDocumentRepository(session)
+        first = Document(
+            id="d1",
+            tenant_id=TenantId("t1"),
+            filename="a.pdf",
+            status=DocumentStatus.PENDING,
+        )
+        second = Document(
+            id="d2",
+            tenant_id=TenantId("t1"),
+            filename="b.pdf",
+            status=DocumentStatus.PENDING,
+        )
+        other = Document(
+            id="d3",
+            tenant_id=TenantId("t2"),
+            filename="c.pdf",
+            status=DocumentStatus.PENDING,
+        )
+        documents.save(first)
+        documents.save(second)
+        documents.save(other)
+        session.commit()
+
+        listed = documents.list_for_tenant(TenantId("t1"))
+        assert [item.id for item in listed] == ["d2", "d1"]
+        assert documents.list_for_tenant(TenantId("t2")) == [other]
+        assert documents.list_for_tenant(TenantId("t3")) == []
+
+
 def test_alembic_upgrade_creates_tenant_and_user_schema(
     tmp_path: Path, monkeypatch: pytest.MonkeyPatch
 ) -> None:
@@ -97,8 +135,11 @@ def test_alembic_upgrade_creates_tenant_and_user_schema(
     inspector = inspect(engine)
     assert "tenants" in inspector.get_table_names()
     assert "users" in inspector.get_table_names()
+    assert "documents" in inspector.get_table_names()
     user_columns = {column["name"] for column in inspector.get_columns("users")}
     assert {"id", "tenant_id", "email", "password_hash"} <= user_columns
+    document_columns = {column["name"] for column in inspector.get_columns("documents")}
+    assert {"id", "tenant_id", "filename", "status", "created_at"} <= document_columns
     email_unique = any(
         "email" in constraint["column_names"] for constraint in inspector.get_unique_constraints("users")
     )

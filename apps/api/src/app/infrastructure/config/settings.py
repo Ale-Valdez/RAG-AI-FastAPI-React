@@ -14,10 +14,21 @@ class Settings(BaseSettings):
     bootstrap_tenant_name: str = ""
     bootstrap_admin_email: str = ""
     bootstrap_admin_password: str = ""
+    max_document_size_mb: int = 20
+    s3_endpoint_url: str = ""
+    s3_region: str = "garage"
+    s3_bucket: str = ""
+    s3_access_key_id: str = ""
+    s3_secret_access_key: str = ""
+    s3_use_path_style: bool = True
 
     @property
     def cors_origins(self) -> list[str]:
         return [item.strip() for item in self.api_cors_origins.split(",") if item.strip()]
+
+    @property
+    def max_document_size_bytes(self) -> int:
+        return self.max_document_size_mb * 1024 * 1024
 
 
 def load_settings() -> Settings:
