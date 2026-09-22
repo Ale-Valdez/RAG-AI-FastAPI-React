@@ -58,6 +58,9 @@ services:
       REDIS_URL: redis://redis:6379/0
       QDRANT_URL: http://qdrant:6333
       MAX_DOCUMENT_SIZE_MB: "20"
+      MAX_DOCUMENT_PAGES: "100"
+      MAX_CONCURRENT_INGESTIONS_PER_TENANT: "2"
+      OPENAI_EMBED_MODEL: text-embedding-3-small
       S3_ENDPOINT_URL: http://garage:3900
       S3_REGION: garage
       S3_BUCKET: ai-rag-documents
@@ -89,6 +92,9 @@ services:
       REDIS_URL: redis://redis:6379/0
       QDRANT_URL: http://qdrant:6333
       MAX_DOCUMENT_SIZE_MB: "20"
+      MAX_DOCUMENT_PAGES: "100"
+      MAX_CONCURRENT_INGESTIONS_PER_TENANT: "2"
+      OPENAI_EMBED_MODEL: text-embedding-3-small
       S3_ENDPOINT_URL: http://garage:3900
       S3_REGION: garage
       S3_BUCKET: ai-rag-documents
@@ -104,6 +110,8 @@ services:
       postgres:
         condition: service_healthy
       garage:
+        condition: service_started
+      qdrant:
         condition: service_started
 
   web:

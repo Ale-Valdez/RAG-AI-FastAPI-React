@@ -10,11 +10,14 @@ class Settings(BaseSettings):
     redis_url: str = "redis://localhost:6379/0"
     qdrant_url: str = "http://localhost:6333"
     openai_api_key: str = ""
+    openai_embed_model: str = "text-embedding-3-small"
     jwt_secret: str = "change-me"
     bootstrap_tenant_name: str = ""
     bootstrap_admin_email: str = ""
     bootstrap_admin_password: str = ""
     max_document_size_mb: int = 20
+    max_document_pages: int = 100
+    max_concurrent_ingestions_per_tenant: int = 2
     s3_endpoint_url: str = ""
     s3_region: str = "garage"
     s3_bucket: str = ""

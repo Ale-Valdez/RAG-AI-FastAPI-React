@@ -14,7 +14,7 @@ from app.domain.identity import User, UserId
 from app.domain.tenancy import Tenant, TenantId
 from app.infrastructure.persistence.base import Base
 from app.infrastructure.persistence.document_repository import SqlAlchemyDocumentRepository
-from app.infrastructure.persistence.models import TenantRow
+from app.infrastructure.persistence.models import DocumentRow, TenantRow
 from app.infrastructure.persistence.session import create_session_factory, session_scope, to_sqlalchemy_url
 from app.infrastructure.persistence.tenant_repository import SqlAlchemyTenantRepository
 from app.infrastructure.persistence.user_repository import SqlAlchemyUserRepository
@@ -119,6 +119,41 @@ def test_document_repository_save_and_tenant_scoped_list() -> None:
         assert [item.id for item in listed] == ["d2", "d1"]
         assert documents.list_for_tenant(TenantId("t2")) == [other]
         assert documents.list_for_tenant(TenantId("t3")) == []
+
+
+def test_document_repository_update_get_delete_and_count_processing() -> None:
+    engine = create_engine("sqlite:///:memory:")
+    Base.metadata.create_all(engine)
+    factory = sessionmaker(bind=engine, autoflush=False, autocommit=False)
+
+    with factory() as session:
+        documents = SqlAlchemyDocumentRepository(session)
+        document = Document(
+            id="d1",
+            tenant_id=TenantId("t1"),
+            filename="a.pdf",
+            status=DocumentStatus.PENDING,
+        )
+        documents.save(document)
+        session.commit()
+        created_at = session.get(DocumentRow, "d1").created_at
+
+        document.mark_processing()
+        documents.save(document)
+        session.commit()
+
+        loaded = documents.get("d1")
+        assert loaded is not None
+        assert loaded.status is DocumentStatus.PROCESSING
+        assert documents.count_processing(TenantId("t1")) == 1
+        assert documents.count_processing(TenantId("t2")) == 0
+
+        row = session.get(DocumentRow, "d1")
+        assert row.created_at == created_at
+
+        documents.delete("d1")
+        session.commit()
+        assert documents.get("d1") is None
 
 
 def test_alembic_upgrade_creates_tenant_and_user_schema(

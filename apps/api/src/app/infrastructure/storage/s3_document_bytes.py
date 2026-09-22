@@ -41,6 +41,14 @@ class S3DocumentBytes:
             Body=content,
         )
 
+    def get(self, *, tenant_id: str, document_id: str, filename: str) -> bytes:
+        response = self._get_client().get_object(
+            Bucket=self._bucket,
+            Key=self._key(tenant_id, document_id, filename),
+        )
+        body = response["Body"].read()
+        return bytes(body)
+
     def delete(self, *, tenant_id: str, document_id: str, filename: str) -> None:
         self._get_client().delete_object(
             Bucket=self._bucket,

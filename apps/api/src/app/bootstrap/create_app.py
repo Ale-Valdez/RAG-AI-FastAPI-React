@@ -5,8 +5,10 @@ from fastapi.middleware.cors import CORSMiddleware
 from app.application.auth.get_current_member import GetCurrentMember
 from app.application.auth.login import Login
 from app.application.auth.models import CurrentMember, LoginCommand, LoginResult
+from app.application.documents.delete_document import DeleteDocument
 from app.application.documents.list_documents import ListDocuments
 from app.application.documents.models import UploadDocumentCommand
+from app.application.documents.reingest_document import ReingestDocument
 from app.application.documents.upload_document import UploadDocument
 from app.application.health.get_health import GetHealth
 from app.application.health.get_readiness import GetReadiness, ReadinessProbe
@@ -25,12 +27,15 @@ from app.infrastructure.http.auth_router import (
     build_auth_router,
 )
 from app.infrastructure.http.documents_router import (
+    DeleteDocumentUseCase,
     ListDocumentsUseCase,
+    ReingestDocumentUseCase,
     UploadDocumentUseCase,
     build_documents_router,
 )
 from app.infrastructure.http.error_handlers import register_error_handlers
 from app.infrastructure.http.health_router import build_health_router
+from app.infrastructure.ingestion.qdrant_chunk_store import QdrantChunkStore
 from app.infrastructure.persistence.document_repository import SqlAlchemyDocumentRepository
 from app.infrastructure.persistence.session import session_scope
 from app.infrastructure.persistence.user_repository import SqlAlchemyUserRepository
@@ -97,6 +102,43 @@ class SessionBoundListDocuments:
             return ListDocuments(SqlAlchemyDocumentRepository(session)).execute(actor)
 
 
+class SessionBoundDeleteDocument:
+    def __init__(
+        self,
+        open_session: LazySessionFactory,
+        bytes_store: S3DocumentBytes,
+        chunk_store: QdrantChunkStore,
+    ) -> None:
+        self._open_session = open_session
+        self._bytes_store = bytes_store
+        self._chunk_store = chunk_store
+
+    def execute(self, actor: Actor, document_id: str) -> str:
+        with session_scope(self._open_session) as session:
+            return DeleteDocument(
+                SqlAlchemyDocumentRepository(session),
+                self._bytes_store,
+                self._chunk_store,
+            ).execute(actor, document_id)
+
+
+class SessionBoundReingestDocument:
+    def __init__(
+        self,
+        open_session: LazySessionFactory,
+        jobs: CeleryDocumentJobQueue,
+    ) -> None:
+        self._open_session = open_session
+        self._jobs = jobs
+
+    def execute(self, actor: Actor, document_id: str) -> Document:
+        with session_scope(self._open_session) as session:
+            return ReingestDocument(
+                SqlAlchemyDocumentRepository(session),
+                self._jobs,
+            ).execute(actor, document_id)
+
+
 def _default_auth(
     settings: Settings,
 ) -> tuple[SessionBoundLogin, SessionBoundGetCurrentMember, JwtService]:
@@ -111,7 +153,12 @@ def _default_auth(
 
 def _default_documents(
     settings: Settings,
-) -> tuple[SessionBoundUploadDocument, SessionBoundListDocuments]:
+) -> tuple[
+    SessionBoundUploadDocument,
+    SessionBoundListDocuments,
+    SessionBoundDeleteDocument,
+    SessionBoundReingestDocument,
+]:
     open_session = LazySessionFactory(settings.database_url)
     bytes_store = S3DocumentBytes(
         endpoint_url=settings.s3_endpoint_url,
@@ -121,14 +168,19 @@ def _default_documents(
         secret_access_key=settings.s3_secret_access_key,
         use_path_style=settings.s3_use_path_style,
     )
+    jobs = CeleryDocumentJobQueue()
+    # Lazily connects on first delete/reingest call — create_app import stays offline.
+    chunk_store = QdrantChunkStore(url=settings.qdrant_url)
     return (
         SessionBoundUploadDocument(
             open_session,
             bytes_store,
-            CeleryDocumentJobQueue(),
+            jobs,
             settings.max_document_size_bytes,
         ),
         SessionBoundListDocuments(open_session),
+        SessionBoundDeleteDocument(open_session, bytes_store, chunk_store),
+        SessionBoundReingestDocument(open_session, jobs),
     )
 
 
@@ -141,6 +193,8 @@ def create_app(
     jwt_service: JwtService | None = None,
     upload_document: UploadDocumentUseCase | None = None,
     list_documents: ListDocumentsUseCase | None = None,
+    delete_document: DeleteDocumentUseCase | None = None,
+    reingest_document: ReingestDocumentUseCase | None = None,
 ) -> FastAPI:
     loaded = settings or load_settings()
     probes = readiness_probes if readiness_probes is not None else default_probes(loaded)
@@ -151,10 +205,19 @@ def create_app(
         get_current_member = get_current_member or default_member
         jwt_service = jwt_service or default_jwt
 
-    if upload_document is None or list_documents is None:
-        default_upload, default_list = _default_documents(loaded)
+    if (
+        upload_document is None
+        or list_documents is None
+        or delete_document is None
+        or reingest_document is None
+    ):
+        default_upload, default_list, default_delete, default_reingest = _default_documents(
+            loaded
+        )
         upload_document = upload_document or default_upload
         list_documents = list_documents or default_list
+        delete_document = delete_document or default_delete
+        reingest_document = reingest_document or default_reingest
 
     application = FastAPI(title=loaded.app_name)
     application.state.jwt_service = jwt_service
@@ -180,6 +243,8 @@ def create_app(
         build_documents_router(
             upload_document=upload_document,
             list_documents=list_documents,
+            delete_document=delete_document,
+            reingest_document=reingest_document,
             jwt_service=jwt_service,
         )
     )

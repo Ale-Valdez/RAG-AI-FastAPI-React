@@ -39,6 +39,9 @@ docker compose exec api python -m app.cli bootstrap
 - Login: `POST /api/v1/auth/login`
 - Current member: `GET /api/v1/me`
 - Documents: `POST /api/v1/documents` (multipart `file`), `GET /api/v1/documents`
+- Re-ingest: `POST /api/v1/documents/{id}/reingest` (ready/failed → pending; same bytes)
+- Delete: `DELETE /api/v1/documents/{id}` (Qdrant points, S3 object, SQL row)
+- Ingestion worker marks documents `ready` or `failed` (page/concurrency limits from env)
 - Garage S3 API: http://localhost:3900 (path-style; bucket from `S3_BUCKET`)
 
 API and domain tests (no Docker):
@@ -52,7 +55,7 @@ pytest
 ## What this seed includes
 
 - Compose services: `postgres`, `qdrant`, `redis`, `garage`, `api`, `worker`, `web`
-- Wired slices: **health / readiness**, **identity / tenancy**, and **document upload / list** (`pending` + ingestion enqueue)
+- Wired slices: **health / readiness**, **identity / tenancy**, **document upload / list**, and **ingestion** (ready / re-ingest / delete)
 - Alembic owns `tenants`, `users`, and `documents`
 - Domain model for tenant, user, document, and conversation
 - React features for health, documents, and chat (documents/chat UI still empty states)
@@ -61,7 +64,7 @@ pytest
 
 1. ~~Identity and tenancy (auth, tenant from authenticated context)~~
 2. ~~Documents (PDF upload; Garage/S3; list as pending)~~
-3. Ingestion (Celery: extract → chunk → embed; replace/delete)
+3. ~~Ingestion (Celery: extract → chunk → embed; replace/delete)~~
 4. Retrieval (Qdrant filter by `tenant_id`)
 5. Chat (grounded answers + citations)
 6. RAG engineering and evaluation

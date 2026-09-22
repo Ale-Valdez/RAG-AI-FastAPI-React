@@ -21,6 +21,13 @@ class Document:
     filename: str
     status: DocumentStatus = DocumentStatus.PENDING
 
+    def mark_pending(self) -> None:
+        if self.status not in (DocumentStatus.READY, DocumentStatus.FAILED):
+            raise InvalidDocumentTransition(
+                f"cannot move document from {self.status.value} to pending"
+            )
+        self.status = DocumentStatus.PENDING
+
     def mark_processing(self) -> None:
         self._require(DocumentStatus.PENDING, "processing")
         self.status = DocumentStatus.PROCESSING

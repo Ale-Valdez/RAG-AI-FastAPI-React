@@ -18,6 +18,9 @@ dependencies = [
   "psycopg[binary]==3.2.9",
   "boto3==1.43.98",
   "python-multipart==0.0.20",
+  "qdrant-client==1.13.3",
+  "openai==3.14.0",
+  "pypdf==6.19.0",
 ]
 
 [project.optional-dependencies]
