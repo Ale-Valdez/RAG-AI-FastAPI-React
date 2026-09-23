@@ -16,6 +16,8 @@ def test_ingestion_settings_defaults() -> None:
     assert settings.max_document_pages == 100
     assert settings.max_concurrent_ingestions_per_tenant == 2
     assert settings.openai_embed_model == "text-embedding-3-small"
+    assert settings.rag_top_k == 5
+    assert settings.rag_score_threshold == 0.70
 
 
 def test_s3_document_bytes_put_get_delete_and_path_style(monkeypatch) -> None:  # noqa: ANN001
@@ -211,6 +213,138 @@ def test_qdrant_upsert_uses_uuid5_cosine_and_payload() -> None:
         FieldCondition(key="tenant_id", match=MatchValue(value="t1")),
         FieldCondition(key="document_id", match=MatchValue(value="doc-1")),
     ]
+
+
+def test_qdrant_search_filters_tenant_and_does_not_create_collection() -> None:
+    from types import SimpleNamespace
+
+    from qdrant_client.http.models import FieldCondition, Filter, MatchAny, MatchValue
+
+    from app.domain.actor import Actor
+    from app.infrastructure.ingestion.qdrant_chunk_store import QdrantChunkStore
+
+    class FakeClient:
+        def __init__(self) -> None:
+            self.exists = True
+            self.created: tuple[object, object] | None = None
+            self.upserts: list[tuple[object, object]] = []
+            self.deletes: list[tuple[object, object]] = []
+            self.queries: list[dict[str, object]] = []
+
+        def collection_exists(self, name: str) -> bool:
+            assert name == "chunks"
+            return self.exists
+
+        def create_collection(self, *, collection_name: str, vectors_config: object) -> None:
+            self.created = (collection_name, vectors_config)
+            self.exists = True
+
+        def upsert(self, *, collection_name: str, points: object) -> None:
+            self.upserts.append((collection_name, points))
+
+        def delete(self, *, collection_name: str, points_selector: object) -> None:
+            self.deletes.append((collection_name, points_selector))
+
+        def query_points(self, **kwargs: object) -> SimpleNamespace:
+            self.queries.append(kwargs)
+            return SimpleNamespace(
+                points=[
+                    SimpleNamespace(
+                        score=0.91,
+                        payload={
+                            "tenant_id": "tenant-a",
+                            "document_id": "doc-ready",
+                            "filename": "handbook.pdf",
+                            "page": 2,
+                            "chunk_index": 4,
+                            "text": "ready text",
+                        },
+                    )
+                ]
+            )
+
+    client = FakeClient()
+    store = QdrantChunkStore(client=client)  # type: ignore[arg-type]
+    actor = Actor(tenant_id="tenant-a", user_id="user-a")
+    hits = store.search(
+        actor=actor,
+        query_vector=[1.0, 0.0, 0.0],
+        document_id="doc-ready",
+        ready_ids=["doc-ready", "doc-other"],
+        top_k=5,
+        score_threshold=0.70,
+    )
+    assert client.created is None
+    assert len(client.queries) == 1
+    query = client.queries[0]
+    assert query["collection_name"] == "chunks"
+    assert query["query"] == [1.0, 0.0, 0.0]
+    assert query["limit"] == 5
+    assert query["score_threshold"] == 0.70
+    query_filter = query["query_filter"]
+    assert isinstance(query_filter, Filter)
+    assert query_filter.must == [
+        FieldCondition(key="tenant_id", match=MatchValue(value="tenant-a")),
+        FieldCondition(
+            key="document_id",
+            match=MatchAny(any=["doc-ready", "doc-other"]),
+        ),
+        FieldCondition(key="document_id", match=MatchValue(value="doc-ready")),
+    ]
+    assert hits[0].document_id == "doc-ready"
+    assert hits[0].filename == "handbook.pdf"
+    assert hits[0].page == 2
+    assert hits[0].chunk_index == 4
+    assert hits[0].text == "ready text"
+    assert hits[0].score == 0.91
+
+    corpus_vector = [0.2, 0.4, 0.6]
+    corpus = store.search(
+        actor=actor,
+        query_vector=corpus_vector,
+        document_id=None,
+        ready_ids=["doc-ready", "doc-other"],
+        top_k=5,
+        score_threshold=0.70,
+    )
+    assert corpus[0].text == "ready text"
+    assert client.queries[1]["query"] == corpus_vector
+    corpus_filter = client.queries[1]["query_filter"]
+    assert isinstance(corpus_filter, Filter)
+    assert corpus_filter.must == [
+        FieldCondition(key="tenant_id", match=MatchValue(value="tenant-a")),
+        FieldCondition(
+            key="document_id",
+            match=MatchAny(any=["doc-ready", "doc-other"]),
+        ),
+    ]
+
+    queries_before_empty = len(client.queries)
+    skipped = store.search(
+        actor=actor,
+        query_vector=[1.0, 0.0],
+        document_id=None,
+        ready_ids=[],
+        top_k=5,
+        score_threshold=0.70,
+    )
+    assert skipped == []
+    assert len(client.queries) == queries_before_empty
+    assert client.created is None
+
+    client.exists = False
+    client.queries.clear()
+    missing = store.search(
+        actor=actor,
+        query_vector=[1.0, 0.0],
+        document_id=None,
+        ready_ids=["doc-ready"],
+        top_k=5,
+        score_threshold=0.70,
+    )
+    assert missing == []
+    assert client.queries == []
+    assert client.created is None
 
 
 def test_openai_embeddings_orders_by_index(monkeypatch) -> None:  # noqa: ANN001

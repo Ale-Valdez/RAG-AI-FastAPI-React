@@ -1,8 +1,13 @@
 from __future__ import annotations
 
+import math
+from collections.abc import Sequence
+
+from app.domain.actor import Actor
 from app.domain.documents import Document, DocumentStatus
 from app.domain.identity import User, UserId
 from app.domain.ports.ingestion import PageText, TextChunk
+from app.domain.ports.retrieval import RetrievedChunk
 from app.domain.tenancy import Tenant, TenantId
 
 
@@ -146,17 +151,39 @@ class FakePdfTextExtractor:
 
 
 class FakeEmbeddingGenerator:
-    def __init__(self, *, fail: bool = False, dim: int = 3) -> None:
+    def __init__(
+        self,
+        *,
+        fail: bool = False,
+        dim: int = 3,
+        vector: list[float] | None = None,
+    ) -> None:
         self.fail = fail
         self.dim = dim
+        self.vector = vector
         self.calls = 0
+        self.texts: list[list[str]] = []
         self.committed_before_embed = False
 
     def embed(self, texts: list[str]) -> list[list[float]]:
         self.calls += 1
+        self.texts.append(list(texts))
         if self.fail:
             raise RuntimeError("embed failed")
+        if self.vector is not None:
+            return [list(self.vector) for _ in texts]
         return [[float(index + 1)] * self.dim for index, _ in enumerate(texts)]
+
+
+def _cosine(left: Sequence[float], right: Sequence[float]) -> float:
+    if len(left) != len(right) or not left:
+        return 0.0
+    dot = sum(a * b for a, b in zip(left, right, strict=True))
+    left_norm = math.sqrt(sum(a * a for a in left))
+    right_norm = math.sqrt(sum(b * b for b in right))
+    if left_norm == 0.0 or right_norm == 0.0:
+        return 0.0
+    return dot / (left_norm * right_norm)
 
 
 class InMemoryChunkStore:
@@ -165,6 +192,7 @@ class InMemoryChunkStore:
         self.delete_calls: list[tuple[str, str]] = []
         self.upsert_calls = 0
         self.fail_upsert = fail_upsert
+        self.search_calls: list[dict[str, object]] = []
 
     def delete_by_document(self, *, tenant_id: str, document_id: str) -> None:
         self.delete_calls.append((tenant_id, document_id))
@@ -199,3 +227,61 @@ class InMemoryChunkStore:
                 "text": chunk.text,
                 "vector": vector,
             }
+
+    def search(
+        self,
+        *,
+        actor: Actor,
+        query_vector: list[float],
+        document_id: str | None,
+        ready_ids: Sequence[str],
+        top_k: int,
+        score_threshold: float,
+    ) -> list[RetrievedChunk]:
+        ready = list(ready_ids)
+        self.search_calls.append(
+            {
+                "actor": actor,
+                "query_vector": list(query_vector),
+                "document_id": document_id,
+                "ready_ids": ready,
+                "top_k": top_k,
+                "score_threshold": score_threshold,
+            }
+        )
+        if not ready:
+            return []
+        ready_set = set(ready)
+        ranked: list[RetrievedChunk] = []
+        for point in self.points.values():
+            if point["tenant_id"] != actor.tenant_id:
+                continue
+            point_document_id = str(point["document_id"])
+            if point_document_id not in ready_set:
+                continue
+            if document_id is not None and point_document_id != document_id:
+                continue
+            raw_vector = point["vector"]
+            if not isinstance(raw_vector, list):
+                continue
+            page = point["page"]
+            chunk_index = point["chunk_index"]
+            if isinstance(page, bool) or not isinstance(page, int):
+                continue
+            if isinstance(chunk_index, bool) or not isinstance(chunk_index, int):
+                continue
+            score = _cosine(query_vector, [float(item) for item in raw_vector])
+            if score < score_threshold:
+                continue
+            ranked.append(
+                RetrievedChunk(
+                    document_id=point_document_id,
+                    filename=str(point["filename"]),
+                    page=page,
+                    chunk_index=chunk_index,
+                    text=str(point["text"]),
+                    score=score,
+                )
+            )
+        ranked.sort(key=lambda hit: (-hit.score, hit.document_id, hit.chunk_index))
+        return ranked[:top_k]

@@ -9,3 +9,7 @@
 - source_spec: `/home/ale/Escritorio/DEV/Own/AI-RAG/_bmad-output/implementation-artifacts/spec-fix-ingestion-status-commit.md`
   summary: If the worker crashes after the early processing commit, the row stays processing and a later run skips it.
   evidence: ProcessDocument only ingests pending rows, and the Celery task retries only a deferred outcome. A raised error after mark_processing, including a failed final commit, leaves the concurrency slot occupied.
+
+- source_spec: `/home/ale/Escritorio/DEV/Own/AI-RAG/_bmad-output/implementation-artifacts/spec-3-1-find-ready-chunks-for-a-question.md`
+  summary: Chunk point identity is `document_id` plus `chunk_index`, so two tenants cannot both keep that same pair.
+  evidence: `chunk_point_id` and the in-memory upsert key predate retrieval. Search filters by tenant, but a later upsert with the same id overwrites the earlier point. Real document ids are distinct, so this story's tenant filter is not what removes the other tenant's chunk.

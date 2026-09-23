@@ -1,11 +1,22 @@
 from __future__ import annotations
 
+from collections.abc import Sequence
 from uuid import UUID, uuid5
 
 from qdrant_client import QdrantClient
-from qdrant_client.http.models import Distance, FieldCondition, Filter, MatchValue, PointStruct, VectorParams
+from qdrant_client.http.models import (
+    Distance,
+    FieldCondition,
+    Filter,
+    MatchAny,
+    MatchValue,
+    PointStruct,
+    VectorParams,
+)
 
+from app.domain.actor import Actor
 from app.domain.ports.ingestion import TextChunk
+from app.domain.ports.retrieval import RetrievedChunk
 
 _COLLECTION = "chunks"
 _POINT_ID_NAMESPACE = UUID("8b3e1c4a-6f2d-4a7e-9c1b-2d5e6f708192")
@@ -66,6 +77,53 @@ class QdrantChunkStore:
             for chunk, vector in zip(chunks, vectors, strict=True)
         ]
         client.upsert(collection_name=_COLLECTION, points=points)
+
+    def search(
+        self,
+        *,
+        actor: Actor,
+        query_vector: list[float],
+        document_id: str | None,
+        ready_ids: Sequence[str],
+        top_k: int,
+        score_threshold: float,
+    ) -> list[RetrievedChunk]:
+        ready = list(ready_ids)
+        if not ready:
+            return []
+        client = self._get_client()
+        if not client.collection_exists(_COLLECTION):
+            return []
+        must = [
+            FieldCondition(key="tenant_id", match=MatchValue(value=actor.tenant_id)),
+            FieldCondition(key="document_id", match=MatchAny(any=ready)),
+        ]
+        if document_id is not None:
+            must.append(
+                FieldCondition(key="document_id", match=MatchValue(value=document_id))
+            )
+        response = client.query_points(
+            collection_name=_COLLECTION,
+            query=query_vector,
+            query_filter=Filter(must=must),
+            limit=top_k,
+            score_threshold=score_threshold,
+            with_payload=True,
+        )
+        hits: list[RetrievedChunk] = []
+        for point in response.points:
+            payload = point.payload or {}
+            hits.append(
+                RetrievedChunk(
+                    document_id=str(payload["document_id"]),
+                    filename=str(payload["filename"]),
+                    page=int(payload["page"]),
+                    chunk_index=int(payload["chunk_index"]),
+                    text=str(payload["text"]),
+                    score=float(point.score),
+                )
+            )
+        return hits
 
     def _get_client(self) -> QdrantClient:
         if self._client is None:
