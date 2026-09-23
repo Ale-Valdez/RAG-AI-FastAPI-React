@@ -349,4 +349,76 @@ def test_session_bound_commit_while_processing_before_extract(monkeypatch) -> No
 
     assert outcome is ProcessOutcome.READY
     assert extract_after_commit is True
-    assert commit_statuses[0] is DocumentStatus.PROCESSING
+    assert commit_statuses == [DocumentStatus.PROCESSING, DocumentStatus.READY]
+
+
+def test_session_bound_commits_failed_status(monkeypatch) -> None:  # noqa: ANN001
+    from app.application.documents.process_document import ProcessOutcome
+    from app.bootstrap.worker import SessionBoundProcessDocument
+    from app.domain.actor import Actor
+    from app.domain.documents import Document, DocumentStatus
+    from app.domain.tenancy import TenantId
+    from app.infrastructure.ingestion.page_chunker import PageAwareChunker
+    from tests.fakes import (
+        FakeEmbeddingGenerator,
+        FakePdfTextExtractor,
+        InMemoryChunkStore,
+        InMemoryDocumentBytes,
+        InMemoryDocumentRepository,
+    )
+
+    documents = InMemoryDocumentRepository()
+    documents.save(
+        Document(
+            id="doc-1",
+            tenant_id=TenantId("t1"),
+            filename="handbook.pdf",
+            status=DocumentStatus.PENDING,
+        )
+    )
+    bytes_store = InMemoryDocumentBytes()
+    bytes_store.put(
+        tenant_id="t1",
+        document_id="doc-1",
+        filename="handbook.pdf",
+        content=b"%PDF",
+    )
+    commit_statuses: list[DocumentStatus] = []
+
+    class FakeSession:
+        def commit(self) -> None:
+            document = documents.get("doc-1")
+            assert document is not None
+            commit_statuses.append(document.status)
+
+        def rollback(self) -> None:
+            return None
+
+        def close(self) -> None:
+            return None
+
+    class Repo:
+        def __init__(self, _session: object) -> None:
+            self._inner = documents
+
+        def __getattr__(self, name: str) -> object:
+            return getattr(self._inner, name)
+
+    monkeypatch.setattr("app.bootstrap.worker.SqlAlchemyDocumentRepository", Repo)
+
+    outcome = SessionBoundProcessDocument(
+        open_session=lambda: FakeSession(),  # type: ignore[arg-type,return-value]
+        bytes_store=bytes_store,  # type: ignore[arg-type]
+        extractor=FakePdfTextExtractor(fail=True),  # type: ignore[arg-type]
+        chunker=PageAwareChunker(),
+        embeddings=FakeEmbeddingGenerator(),  # type: ignore[arg-type]
+        chunk_store=InMemoryChunkStore(),  # type: ignore[arg-type]
+        max_pages=100,
+        max_concurrent=2,
+    ).execute(Actor(tenant_id="t1", user_id="u1"), "doc-1")
+
+    assert outcome is ProcessOutcome.FAILED
+    assert commit_statuses == [DocumentStatus.PROCESSING, DocumentStatus.FAILED]
+    saved = documents.get("doc-1")
+    assert saved is not None
+    assert saved.status is DocumentStatus.FAILED

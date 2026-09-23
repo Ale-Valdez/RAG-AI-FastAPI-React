@@ -48,12 +48,12 @@ class SessionBoundProcessDocument:
                 max_concurrent=self._max_concurrent,
                 commit=session.commit,
             )
-            return use_case.execute(actor, document_id)
+            outcome = use_case.execute(actor, document_id)
+            session.commit()
+            return outcome
         except Exception:
             session.rollback()
             raise
-        else:
-            session.commit()
         finally:
             session.close()
 

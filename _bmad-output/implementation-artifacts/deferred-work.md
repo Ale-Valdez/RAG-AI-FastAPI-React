@@ -5,3 +5,7 @@
 ## Deferred from: code review of spec-1-1-bootstrap-a-tenant-and-sign-in (2026-09-21)
 
 - `http-envelope.md` does not list `VALIDATION_ERROR`. Product handlers return that code on 422. Updating the shared envelope spec is outside this story's code.
+
+- source_spec: `/home/ale/Escritorio/DEV/Own/AI-RAG/_bmad-output/implementation-artifacts/spec-fix-ingestion-status-commit.md`
+  summary: If the worker crashes after the early processing commit, the row stays processing and a later run skips it.
+  evidence: ProcessDocument only ingests pending rows, and the Celery task retries only a deferred outcome. A raised error after mark_processing, including a failed final commit, leaves the concurrency slot occupied.
