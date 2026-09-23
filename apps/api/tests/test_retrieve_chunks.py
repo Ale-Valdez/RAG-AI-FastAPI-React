@@ -334,11 +334,13 @@ def test_bad_document_id_raises_not_found_without_search(
     assert embeddings.calls == 0
 
 
-def test_retrieval_adds_no_chat_route() -> None:
+def test_conversation_routes_are_registered() -> None:
     application = create_app(
         settings=Settings(jwt_secret="test-secret-key-at-least-32-bytes!!"),
         readiness_probes=[],
     )
-    paths = [getattr(route, "path", "") for route in application.routes]
-    assert paths
-    assert all("chat" not in path and "conversation" not in path for path in paths)
+    paths = {getattr(route, "path", "") for route in application.routes}
+    assert "/api/v1/conversations" in paths
+    assert "/api/v1/conversations/{conversation_id}" in paths
+    assert "/api/v1/conversations/{conversation_id}/messages" in paths
+    assert all("chat" not in path for path in paths)

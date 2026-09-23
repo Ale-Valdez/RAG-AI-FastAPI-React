@@ -4,6 +4,7 @@ import math
 from collections.abc import Sequence
 
 from app.domain.actor import Actor
+from app.domain.chat import Conversation
 from app.domain.documents import Document, DocumentStatus
 from app.domain.identity import User, UserId
 from app.domain.ports.ingestion import PageText, TextChunk
@@ -285,3 +286,42 @@ class InMemoryChunkStore:
             )
         ranked.sort(key=lambda hit: (-hit.score, hit.document_id, hit.chunk_index))
         return ranked[:top_k]
+
+
+class InMemoryConversationRepository:
+    def __init__(self) -> None:
+        self.items: dict[str, Conversation] = {}
+        self.save_calls = 0
+
+    def save(self, conversation: Conversation) -> None:
+        self.save_calls += 1
+        self.items[conversation.id] = conversation
+
+    def get_for_actor(self, actor: Actor, conversation_id: str) -> Conversation | None:
+        conversation = self.items.get(conversation_id)
+        if conversation is None:
+            return None
+        if (
+            conversation.tenant_id.value != actor.tenant_id
+            or conversation.user_id.value != actor.user_id
+        ):
+            return None
+        return conversation
+
+    def list_for_actor(self, actor: Actor) -> list[Conversation]:
+        matches = [
+            item
+            for item in self.items.values()
+            if item.tenant_id.value == actor.tenant_id and item.user_id.value == actor.user_id
+        ]
+        return sorted(matches, key=lambda item: (item.created_at, item.id), reverse=True)
+
+
+class FakeAnswerGenerator:
+    def __init__(self, answer: str = "grounded answer") -> None:
+        self.answer = answer
+        self.calls: list[tuple[str, list[str]]] = []
+
+    def generate(self, question: str, context_texts: list[str]) -> str:
+        self.calls.append((question, list(context_texts)))
+        return self.answer

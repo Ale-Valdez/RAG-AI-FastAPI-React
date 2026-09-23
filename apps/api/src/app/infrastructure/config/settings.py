@@ -11,6 +11,7 @@ class Settings(BaseSettings):
     qdrant_url: str = "http://localhost:6333"
     openai_api_key: str = ""
     openai_embed_model: str = "text-embedding-3-small"
+    openai_chat_model: str = "gpt-4o-mini"
     rag_top_k: int = 5
     rag_score_threshold: float = 0.70
     jwt_secret: str = "change-me"

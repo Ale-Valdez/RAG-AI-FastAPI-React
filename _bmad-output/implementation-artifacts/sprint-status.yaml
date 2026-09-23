@@ -29,7 +29,7 @@
 # - Dev moves story to 'review', then runs code-review (fresh context, different LLM recommended)
 # - Retrospective appends its action items to action_items; the status view surfaces open ones
 generated: 09-21-2026 18:22
-last_updated: 09-23-2026 12:40
+last_updated: 09-23-2026 13:45
 project: AI-RAG
 project_key: NOKEY
 tracking_system: file-system
@@ -47,7 +47,7 @@ development_status:
 
   epic-3: in-progress
   3-1-find-ready-chunks-for-a-question: review
-  3-2-ask-a-question-and-keep-the-thread: backlog
+  3-2-ask-a-question-and-keep-the-thread: review
   epic-3-retrospective: optional
 
   epic-4: backlog

@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+from datetime import UTC, datetime
 from pathlib import Path
 
 import pytest
@@ -9,10 +10,13 @@ from sqlalchemy import create_engine, inspect
 from sqlalchemy.orm import Session, sessionmaker
 from sqlalchemy.pool import StaticPool
 
+from app.domain.actor import Actor
+from app.domain.chat import Conversation, Message, SourceRef
 from app.domain.documents import Document, DocumentStatus
 from app.domain.identity import User, UserId
 from app.domain.tenancy import Tenant, TenantId
 from app.infrastructure.persistence.base import Base
+from app.infrastructure.persistence.conversation_repository import SqlAlchemyConversationRepository
 from app.infrastructure.persistence.document_repository import SqlAlchemyDocumentRepository
 from app.infrastructure.persistence.models import DocumentRow, TenantRow
 from app.infrastructure.persistence.session import create_session_factory, session_scope, to_sqlalchemy_url
@@ -175,6 +179,20 @@ def test_alembic_upgrade_creates_tenant_and_user_schema(
     assert {"id", "tenant_id", "email", "password_hash"} <= user_columns
     document_columns = {column["name"] for column in inspector.get_columns("documents")}
     assert {"id", "tenant_id", "filename", "status", "created_at"} <= document_columns
+    assert "conversations" in inspector.get_table_names()
+    assert "messages" in inspector.get_table_names()
+    conversation_columns = {column["name"] for column in inspector.get_columns("conversations")}
+    assert {"id", "tenant_id", "user_id", "created_at"} <= conversation_columns
+    message_columns = {column["name"] for column in inspector.get_columns("messages")}
+    assert {
+        "id",
+        "conversation_id",
+        "tenant_id",
+        "position",
+        "role",
+        "content",
+        "sources",
+    } <= message_columns
     email_unique = any(
         "email" in constraint["column_names"] for constraint in inspector.get_unique_constraints("users")
     )
@@ -183,3 +201,76 @@ def test_alembic_upgrade_creates_tenant_and_user_schema(
         for index in inspector.get_indexes("users")
     )
     assert email_unique or email_index
+
+
+def test_conversation_repository_round_trip_is_actor_scoped() -> None:
+    engine = create_engine("sqlite:///:memory:")
+    Base.metadata.create_all(engine)
+    factory = sessionmaker(bind=engine, autoflush=False, autocommit=False)
+    created_at = datetime(2026, 3, 1, 12, 0, tzinfo=UTC)
+    actor = Actor(tenant_id="t1", user_id="u1")
+    other = Actor(tenant_id="t2", user_id="u1")
+    source = SourceRef(document_id="d1", filename="a.pdf", page=2, chunk_index=0)
+    conversation = Conversation(
+        id="c1",
+        tenant_id=TenantId("t1"),
+        user_id=UserId("u1"),
+        created_at=created_at,
+        messages=[
+            Message(role="user", content="what is the policy?"),
+            Message(role="assistant", content="grounded answer", sources=(source,)),
+        ],
+    )
+    newer = Conversation(
+        id="c-new",
+        tenant_id=TenantId("t1"),
+        user_id=UserId("u1"),
+        created_at=datetime(2026, 3, 2, tzinfo=UTC),
+        messages=[Message(role="user", content="later question")],
+    )
+    same_tenant_other_user = Conversation(
+        id="c-other-user",
+        tenant_id=TenantId("t1"),
+        user_id=UserId("u2"),
+        created_at=datetime(2026, 5, 1, tzinfo=UTC),
+        messages=[Message(role="user", content="other user")],
+    )
+    hidden = Conversation(
+        id="c2",
+        tenant_id=TenantId("t2"),
+        user_id=UserId("u1"),
+        created_at=datetime(2026, 4, 1, tzinfo=UTC),
+        messages=[Message(role="user", content="other tenant")],
+    )
+
+    with factory() as session:
+        repository = SqlAlchemyConversationRepository(session)
+        repository.save(conversation)
+        repository.save(newer)
+        repository.save(same_tenant_other_user)
+        repository.save(hidden)
+        session.commit()
+
+        loaded = repository.get_for_actor(actor, "c1")
+        assert loaded is not None
+        assert loaded.created_at == created_at
+        assert loaded.messages[0] == Message(role="user", content="what is the policy?")
+        assert loaded.messages[1].sources == (source,)
+        assert repository.get_for_actor(other, "c1") is None
+        assert repository.get_for_actor(actor, "c2") is None
+        assert repository.get_for_actor(actor, "c-other-user") is None
+        assert [item.id for item in repository.list_for_actor(actor)] == ["c-new", "c1"]
+
+        loaded.messages.append(Message(role="user", content="follow up"))
+        loaded.created_at = datetime(2026, 5, 1, tzinfo=UTC)
+        repository.save(loaded)
+        session.commit()
+
+        again = repository.get_for_actor(actor, "c1")
+        assert again is not None
+        assert again.created_at == created_at
+        assert [message.content for message in again.messages] == [
+            "what is the policy?",
+            "grounded answer",
+            "follow up",
+        ]
