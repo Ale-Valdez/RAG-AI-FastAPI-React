@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+from contextlib import contextmanager
 from datetime import UTC, datetime
 from uuid import UUID
 
@@ -39,6 +40,8 @@ def _ask(
     chunk_store: InMemoryChunkStore,
     conversations: InMemoryConversationRepository,
     generator: FakeAnswerGenerator,
+    rewriter: object | None = None,
+    reranker: object | None = None,
 ) -> AskQuestion:
     retrieve = RetrieveChunks(
         documents,
@@ -46,6 +49,8 @@ def _ask(
         chunk_store,
         top_k=5,
         score_threshold=0.70,
+        rewriter=rewriter,  # type: ignore[arg-type]
+        reranker=reranker,  # type: ignore[arg-type]
     )
     return AskQuestion(conversations, retrieve, generator)
 
@@ -106,6 +111,8 @@ def test_default_chat_keeps_retrieve_and_chat_settings(monkeypatch: pytest.Monke
     assert ask._chat_model == settings.openai_chat_model == "gpt-4o-mini"
     assert ask._embeddings is None
     assert ask._generator is None
+    assert ask._rewriter is None
+    assert ask._reranker is None
 
 
 def test_grounded_ask_stores_sources_from_actor_ready_chunks() -> None:
@@ -587,3 +594,177 @@ def test_openai_generator_sends_question_and_chunk_texts() -> None:
     assert "what is the policy?" in content
     assert "policy text" in content
     assert "second text" in content
+
+
+def test_rewritten_retrieval_stores_the_typed_question() -> None:
+    class Rewriter:
+        def rewrite(self, question: str) -> str:
+            assert question == _QUESTION
+            return "leave policy rules"
+
+    documents = InMemoryDocumentRepository()
+    chunk_store = InMemoryChunkStore()
+    embeddings = FakeEmbeddingGenerator()
+    conversations = InMemoryConversationRepository()
+    generator = FakeAnswerGenerator()
+    _save_document(documents, "ready-1", "tenant-a", DocumentStatus.READY)
+    _point(
+        chunk_store,
+        tenant_id="tenant-a",
+        document_id="ready-1",
+        chunk_index=0,
+        vector=[1.0, 1.0, 1.0],
+        text="policy text",
+        page=2,
+    )
+
+    conversation = _ask(
+        documents,
+        embeddings,
+        chunk_store,
+        conversations,
+        generator,
+        rewriter=Rewriter(),
+    ).execute(_ACTOR_A, _QUESTION)
+
+    assert conversation.messages[0] == Message(role="user", content=_QUESTION)
+    assert conversation.messages[1].sources == (
+        SourceRef(document_id="ready-1", filename="ready-1.pdf", page=2, chunk_index=0),
+    )
+    assert generator.calls == [(_QUESTION, ["policy text"])]
+    assert embeddings.texts == [["leave policy rules"]]
+    assert chunk_store.search_calls[0]["question"] == "leave policy rules"
+
+
+def test_rewrite_and_rerank_failures_still_save_the_ask() -> None:
+    class Down:
+        def rewrite(self, question: str) -> str:
+            raise RuntimeError("rewrite down")
+
+        def rerank(self, query: str, chunks: list[object]) -> list[object]:
+            raise RuntimeError("rerank down")
+
+    documents = InMemoryDocumentRepository()
+    chunk_store = InMemoryChunkStore()
+    embeddings = FakeEmbeddingGenerator()
+    conversations = InMemoryConversationRepository()
+    generator = FakeAnswerGenerator()
+    _save_document(documents, "ready-1", "tenant-a", DocumentStatus.READY)
+    _point(
+        chunk_store,
+        tenant_id="tenant-a",
+        document_id="ready-1",
+        chunk_index=0,
+        vector=[1.0, 1.0, 1.0],
+        text="policy text",
+        page=2,
+    )
+    adapter = Down()
+
+    conversation = _ask(
+        documents,
+        embeddings,
+        chunk_store,
+        conversations,
+        generator,
+        rewriter=adapter,
+        reranker=adapter,
+    ).execute(_ACTOR_A, _QUESTION)
+
+    assert conversation.messages[0] == Message(role="user", content=_QUESTION)
+    assert conversation.messages[1].content == "grounded answer"
+    assert conversation.messages[1].sources == (
+        SourceRef(document_id="ready-1", filename="ready-1.pdf", page=2, chunk_index=0),
+    )
+    assert conversations.save_calls == 1
+    assert embeddings.texts == [[_QUESTION]]
+
+
+def test_ask_execute_passes_wired_rewrite_and_rerank(monkeypatch: pytest.MonkeyPatch) -> None:
+    rewriter = object()
+    reranker = object()
+    built: dict[str, object] = {}
+
+    def build_rewriter(**kwargs: object) -> object:
+        built["rewriter_model"] = kwargs["model"]
+        return rewriter
+
+    def build_reranker(**kwargs: object) -> object:
+        built["reranker_model"] = kwargs["model"]
+        return reranker
+
+    class RecordingRetrieve:
+        def __init__(
+            self,
+            documents: object,
+            embeddings: object,
+            retriever: object,
+            *,
+            top_k: int,
+            score_threshold: float,
+            rewriter: object | None = None,
+            reranker: object | None = None,
+        ) -> None:
+            built["rewriter"] = rewriter
+            built["reranker"] = reranker
+
+        def execute(self, *args: object, **kwargs: object) -> list[object]:
+            return []
+
+    class RecordingAsk:
+        def __init__(self, conversations: object, retrieve: object, generator: object) -> None:
+            return None
+
+        def execute(
+            self,
+            actor: Actor,
+            question: str,
+            document_id: str | None = None,
+            conversation_id: str | None = None,
+        ) -> Conversation:
+            return Conversation(
+                id="thread",
+                tenant_id=TenantId(actor.tenant_id),
+                user_id=UserId(actor.user_id),
+                created_at=datetime(2026, 1, 1, tzinfo=UTC),
+            )
+
+    @contextmanager
+    def fake_scope(open_session: object):  # noqa: ANN202
+        yield object()
+
+    monkeypatch.setattr("app.bootstrap.create_app.OpenAIQueryRewriter", build_rewriter)
+    monkeypatch.setattr("app.bootstrap.create_app.OpenAIChunkReranker", build_reranker)
+    monkeypatch.setattr(
+        "app.bootstrap.create_app.OpenAIEmbeddingGenerator",
+        lambda **kwargs: object(),
+    )
+    monkeypatch.setattr(
+        "app.bootstrap.create_app.OpenAIAnswerGenerator",
+        lambda **kwargs: object(),
+    )
+    monkeypatch.setattr("app.bootstrap.create_app.RetrieveChunks", RecordingRetrieve)
+    monkeypatch.setattr("app.bootstrap.create_app.AskQuestion", RecordingAsk)
+    monkeypatch.setattr("app.bootstrap.create_app.session_scope", fake_scope)
+    monkeypatch.setattr(
+        "app.bootstrap.create_app.SqlAlchemyDocumentRepository",
+        lambda session: object(),
+    )
+    monkeypatch.setattr(
+        "app.bootstrap.create_app.SqlAlchemyConversationRepository",
+        lambda session: object(),
+    )
+
+    for name in ("OPENAI_API_KEY", "OPENAI_CHAT_MODEL", "RAG_TOP_K", "RAG_SCORE_THRESHOLD"):
+        monkeypatch.delenv(name, raising=False)
+    settings = Settings(_env_file=None)
+    ask, _get_conversation, _list_conversations = _default_chat(settings)
+    assert ask._rewriter is None
+    assert ask._reranker is None
+
+    ask.execute(_ACTOR_A, _QUESTION)
+
+    assert built["rewriter"] is rewriter
+    assert built["reranker"] is reranker
+    assert built["rewriter_model"] == settings.openai_chat_model == "gpt-4o-mini"
+    assert built["reranker_model"] == "gpt-4o-mini"

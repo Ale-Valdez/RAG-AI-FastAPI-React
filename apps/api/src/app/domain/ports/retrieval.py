@@ -26,12 +26,21 @@ class RetrievedChunk:
         )
 
 
+class QueryRewriter(Protocol):
+    def rewrite(self, question: str) -> str: ...
+
+
+class ChunkReranker(Protocol):
+    def rerank(self, query: str, chunks: Sequence[RetrievedChunk]) -> Sequence[RetrievedChunk]: ...
+
+
 class ChunkRetriever(Protocol):
     def search(
         self,
         *,
         actor: Actor,
         query_vector: list[float],
+        question: str,
         document_id: str | None,
         ready_ids: Sequence[str],
         top_k: int,

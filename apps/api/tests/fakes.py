@@ -9,6 +9,7 @@ from app.domain.documents import Document, DocumentStatus
 from app.domain.identity import User, UserId
 from app.domain.ports.ingestion import PageText, TextChunk
 from app.domain.ports.retrieval import RetrievedChunk
+from app.infrastructure.retrieval.hybrid import fuse_hits, lexical_score
 from app.domain.tenancy import Tenant, TenantId
 
 
@@ -234,6 +235,7 @@ class InMemoryChunkStore:
         *,
         actor: Actor,
         query_vector: list[float],
+        question: str,
         document_id: str | None,
         ready_ids: Sequence[str],
         top_k: int,
@@ -244,6 +246,7 @@ class InMemoryChunkStore:
             {
                 "actor": actor,
                 "query_vector": list(query_vector),
+                "question": question,
                 "document_id": document_id,
                 "ready_ids": ready,
                 "top_k": top_k,
@@ -253,7 +256,8 @@ class InMemoryChunkStore:
         if not ready:
             return []
         ready_set = set(ready)
-        ranked: list[RetrievedChunk] = []
+        dense: list[RetrievedChunk] = []
+        text_hits: list[RetrievedChunk] = []
         for point in self.points.values():
             if point["tenant_id"] != actor.tenant_id:
                 continue
@@ -271,21 +275,34 @@ class InMemoryChunkStore:
                 continue
             if isinstance(chunk_index, bool) or not isinstance(chunk_index, int):
                 continue
+            text = point["text"]
+            passage = text if isinstance(text, str) else str(text)
             score = _cosine(query_vector, [float(item) for item in raw_vector])
-            if score < score_threshold:
-                continue
-            ranked.append(
-                RetrievedChunk(
-                    document_id=point_document_id,
-                    filename=str(point["filename"]),
-                    page=page,
-                    chunk_index=chunk_index,
-                    text=str(point["text"]),
-                    score=score,
+            if score >= score_threshold:
+                dense.append(
+                    RetrievedChunk(
+                        document_id=point_document_id,
+                        filename=str(point["filename"]),
+                        page=page,
+                        chunk_index=chunk_index,
+                        text=passage,
+                        score=score,
+                    )
                 )
-            )
-        ranked.sort(key=lambda hit: (-hit.score, hit.document_id, hit.chunk_index))
-        return ranked[:top_k]
+            if isinstance(text, str) and lexical_score(question, text) == 1.0:
+                text_hits.append(
+                    RetrievedChunk(
+                        document_id=point_document_id,
+                        filename=str(point["filename"]),
+                        page=page,
+                        chunk_index=chunk_index,
+                        text=text,
+                        score=1.0,
+                    )
+                )
+        dense.sort(key=lambda hit: (-hit.score, hit.document_id, hit.chunk_index))
+        text_hits.sort(key=lambda hit: (hit.document_id, hit.chunk_index))
+        return fuse_hits(dense[:top_k], text_hits, top_k)
 
 
 class InMemoryConversationRepository:

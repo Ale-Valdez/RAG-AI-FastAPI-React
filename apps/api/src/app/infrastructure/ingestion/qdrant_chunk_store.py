@@ -17,9 +17,22 @@ from qdrant_client.http.models import (
 from app.domain.actor import Actor
 from app.domain.ports.ingestion import TextChunk
 from app.domain.ports.retrieval import RetrievedChunk
+from app.infrastructure.retrieval.hybrid import distinctive_words, fuse_hits, lexical_score
 
 _COLLECTION = "chunks"
 _POINT_ID_NAMESPACE = UUID("8b3e1c4a-6f2d-4a7e-9c1b-2d5e6f708192")
+_TEXT_PAGE = 128
+
+
+def _chunk_from_payload(payload: dict, score: float) -> RetrievedChunk:  # noqa: ANN001
+    return RetrievedChunk(
+        document_id=str(payload["document_id"]),
+        filename=str(payload["filename"]),
+        page=int(payload["page"]),
+        chunk_index=int(payload["chunk_index"]),
+        text=str(payload["text"]),
+        score=score,
+    )
 
 
 def chunk_point_id(document_id: str, chunk_index: int) -> str:
@@ -83,6 +96,7 @@ class QdrantChunkStore:
         *,
         actor: Actor,
         query_vector: list[float],
+        question: str,
         document_id: str | None,
         ready_ids: Sequence[str],
         top_k: int,
@@ -102,27 +116,50 @@ class QdrantChunkStore:
             must.append(
                 FieldCondition(key="document_id", match=MatchValue(value=document_id))
             )
+        query_filter = Filter(must=must)
         response = client.query_points(
             collection_name=_COLLECTION,
             query=query_vector,
-            query_filter=Filter(must=must),
+            query_filter=query_filter,
             limit=top_k,
             score_threshold=score_threshold,
             with_payload=True,
         )
+        dense = [
+            _chunk_from_payload(point.payload or {}, float(point.score))
+            for point in response.points
+        ]
+        return fuse_hits(dense, self._text_hits(client, query_filter, question), top_k)
+
+    def _text_hits(
+        self,
+        client: QdrantClient,
+        query_filter: Filter,
+        question: str,
+    ) -> list[RetrievedChunk]:
+        if not distinctive_words(question):
+            return []
         hits: list[RetrievedChunk] = []
-        for point in response.points:
-            payload = point.payload or {}
-            hits.append(
-                RetrievedChunk(
-                    document_id=str(payload["document_id"]),
-                    filename=str(payload["filename"]),
-                    page=int(payload["page"]),
-                    chunk_index=int(payload["chunk_index"]),
-                    text=str(payload["text"]),
-                    score=float(point.score),
-                )
+        offset: str | int | None = None
+        while True:
+            points, next_offset = client.scroll(
+                collection_name=_COLLECTION,
+                scroll_filter=query_filter,
+                limit=_TEXT_PAGE,
+                offset=offset,
+                with_payload=True,
+                with_vectors=False,
             )
+            for point in points:
+                payload = point.payload or {}
+                text = payload.get("text")
+                if not isinstance(text, str) or lexical_score(question, text) != 1.0:
+                    continue
+                hits.append(_chunk_from_payload(payload, 1.0))
+            if next_offset is None or next_offset == offset:
+                break
+            offset = next_offset
+        hits.sort(key=lambda hit: (hit.document_id, hit.chunk_index))
         return hits
 
     def _get_client(self) -> QdrantClient:

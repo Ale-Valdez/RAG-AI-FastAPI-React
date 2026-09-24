@@ -24,6 +24,8 @@ def _use_case(
     *,
     top_k: int = 5,
     score_threshold: float = 0.70,
+    rewriter: object | None = None,
+    reranker: object | None = None,
 ) -> RetrieveChunks:
     return RetrieveChunks(
         documents,
@@ -31,6 +33,8 @@ def _use_case(
         chunk_store,
         top_k=top_k,
         score_threshold=score_threshold,
+        rewriter=rewriter,  # type: ignore[arg-type]
+        reranker=reranker,  # type: ignore[arg-type]
     )
 
 
@@ -206,6 +210,36 @@ def test_one_document_limits_hits_and_keeps_tenant_filter() -> None:
     assert call["ready_ids"] == ["ready-1"]
 
 
+def test_document_id_limits_the_text_leg() -> None:
+    documents = InMemoryDocumentRepository()
+    chunk_store = InMemoryChunkStore()
+    embeddings = FakeEmbeddingGenerator(vector=[0.0, 1.0, 0.0])
+    _save(documents, "ready-1", "tenant-a", DocumentStatus.READY)
+    _save(documents, "ready-2", "tenant-a", DocumentStatus.READY)
+    _point(
+        chunk_store,
+        tenant_id="tenant-a",
+        document_id="ready-1",
+        chunk_index=0,
+        vector=[1.0, 0.0, 0.0],
+        text="unrelated",
+    )
+    _point(
+        chunk_store,
+        tenant_id="tenant-a",
+        document_id="ready-2",
+        chunk_index=0,
+        vector=[0.0, 1.0, 0.0],
+        text="the policy applies",
+    )
+
+    hits = _use_case(documents, embeddings, chunk_store).execute(_ACTOR_A, _QUESTION, "ready-1")
+
+    assert hits == []
+    assert chunk_store.search_calls[0]["document_id"] == "ready-1"
+    assert chunk_store.search_calls[0]["ready_ids"] == ["ready-1"]
+
+
 def test_low_scores_return_empty() -> None:
     documents = InMemoryDocumentRepository()
     chunk_store = InMemoryChunkStore()
@@ -332,6 +366,390 @@ def test_bad_document_id_raises_not_found_without_search(
 
     assert chunk_store.search_calls == []
     assert embeddings.calls == 0
+
+
+def test_text_hit_on_policy_does_not_require_what() -> None:
+    documents = InMemoryDocumentRepository()
+    chunk_store = InMemoryChunkStore()
+    embeddings = FakeEmbeddingGenerator(vector=[0.0, 1.0, 0.0])
+    _save(documents, "ready-1", "tenant-a", DocumentStatus.READY)
+    _save(documents, "pending-a", "tenant-a", DocumentStatus.PENDING)
+    _save(documents, "ready-b", "tenant-b", DocumentStatus.READY)
+    _point(
+        chunk_store,
+        tenant_id="tenant-a",
+        document_id="ready-1",
+        chunk_index=0,
+        vector=[1.0, 0.0, 0.0],
+        text="The Policy applies",
+        page=4,
+    )
+    _point(
+        chunk_store,
+        tenant_id="tenant-a",
+        document_id="pending-a",
+        chunk_index=0,
+        vector=[0.0, 1.0, 0.0],
+        text="the policy applies",
+    )
+    _point(
+        chunk_store,
+        tenant_id="tenant-b",
+        document_id="ready-b",
+        chunk_index=0,
+        vector=[0.0, 1.0, 0.0],
+        text="the policy applies",
+    )
+
+    hits = _use_case(documents, embeddings, chunk_store).execute(_ACTOR_A, _QUESTION)
+
+    assert len(hits) == 1
+    assert hits[0].document_id == "ready-1"
+    assert hits[0].text == "The Policy applies"
+    assert "what" not in hits[0].text
+    assert hits[0].score == 1.0
+    assert hits[0].page == 4
+
+
+def test_longer_token_is_not_a_text_match() -> None:
+    documents = InMemoryDocumentRepository()
+    chunk_store = InMemoryChunkStore()
+    embeddings = FakeEmbeddingGenerator(vector=[0.0, 1.0, 0.0])
+    _save(documents, "ready-1", "tenant-a", DocumentStatus.READY)
+    _point(
+        chunk_store,
+        tenant_id="tenant-a",
+        document_id="ready-1",
+        chunk_index=0,
+        vector=[1.0, 0.0, 0.0],
+        text="policymaking",
+    )
+
+    hits = _use_case(documents, embeddings, chunk_store).execute(_ACTOR_A, _QUESTION)
+
+    assert hits == []
+
+
+def test_text_only_tie_prefers_lower_document_id() -> None:
+    documents = InMemoryDocumentRepository()
+    chunk_store = InMemoryChunkStore()
+    embeddings = FakeEmbeddingGenerator(vector=[0.0, 1.0, 0.0])
+    _save(documents, "z-doc", "tenant-a", DocumentStatus.READY)
+    _save(documents, "a-doc", "tenant-a", DocumentStatus.READY)
+    _point(
+        chunk_store,
+        tenant_id="tenant-a",
+        document_id="z-doc",
+        chunk_index=0,
+        vector=[1.0, 0.0, 0.0],
+        text="company policy",
+    )
+    _point(
+        chunk_store,
+        tenant_id="tenant-a",
+        document_id="a-doc",
+        chunk_index=0,
+        vector=[1.0, 0.0, 0.0],
+        text="company policy",
+    )
+
+    hits = _use_case(documents, embeddings, chunk_store, top_k=1).execute(_ACTOR_A, _QUESTION)
+
+    assert len(hits) == 1
+    assert hits[0].document_id == "a-doc"
+
+
+def test_text_leg_adds_nothing_when_no_distinctive_word_remains() -> None:
+    documents = InMemoryDocumentRepository()
+    chunk_store = InMemoryChunkStore()
+    embeddings = FakeEmbeddingGenerator(vector=[0.0, 1.0, 0.0])
+    _save(documents, "ready-1", "tenant-a", DocumentStatus.READY)
+    _point(
+        chunk_store,
+        tenant_id="tenant-a",
+        document_id="ready-1",
+        chunk_index=0,
+        vector=[1.0, 0.0, 0.0],
+        text="what this",
+    )
+
+    hits = _use_case(documents, embeddings, chunk_store).execute(_ACTOR_A, "what this")
+
+    assert hits == []
+
+
+def test_text_match_requires_every_distinctive_word() -> None:
+    documents = InMemoryDocumentRepository()
+    chunk_store = InMemoryChunkStore()
+    embeddings = FakeEmbeddingGenerator(vector=[0.0, 1.0, 0.0])
+    _save(documents, "ready-1", "tenant-a", DocumentStatus.READY)
+    _point(
+        chunk_store,
+        tenant_id="tenant-a",
+        document_id="ready-1",
+        chunk_index=0,
+        vector=[1.0, 0.0, 0.0],
+        text="the policy",
+    )
+
+    missed = _use_case(documents, embeddings, chunk_store).execute(_ACTOR_A, "policy handbook")
+    assert missed == []
+
+    chunk_store.points["ready-1:0"]["text"] = "policy handbook"
+    hits = _use_case(documents, embeddings, chunk_store).execute(_ACTOR_A, "policy handbook")
+    assert len(hits) == 1
+    assert hits[0].text == "policy handbook"
+
+
+def test_text_match_uses_a_four_character_cutoff() -> None:
+    documents = InMemoryDocumentRepository()
+    chunk_store = InMemoryChunkStore()
+    embeddings = FakeEmbeddingGenerator(vector=[0.0, 1.0, 0.0])
+    _save(documents, "ready-1", "tenant-a", DocumentStatus.READY)
+    _point(
+        chunk_store,
+        tenant_id="tenant-a",
+        document_id="ready-1",
+        chunk_index=0,
+        vector=[1.0, 0.0, 0.0],
+        text="policy",
+    )
+
+    short_word = _use_case(documents, embeddings, chunk_store).execute(_ACTOR_A, "cat policy")
+    assert len(short_word) == 1
+
+    four_chars = _use_case(documents, embeddings, chunk_store).execute(_ACTOR_A, "cats policy")
+    assert four_chars == []
+
+    chunk_store.points["ready-1:0"]["text"] = "cats policy"
+    matched = _use_case(documents, embeddings, chunk_store).execute(_ACTOR_A, "cats policy")
+    assert len(matched) == 1
+
+
+def test_fusion_promotes_a_chunk_found_by_both_legs() -> None:
+    documents = InMemoryDocumentRepository()
+    chunk_store = InMemoryChunkStore()
+    embeddings = FakeEmbeddingGenerator(vector=[1.0, 0.0, 0.0])
+    _save(documents, "a-doc", "tenant-a", DocumentStatus.READY)
+    _save(documents, "z-doc", "tenant-a", DocumentStatus.READY)
+    _point(
+        chunk_store,
+        tenant_id="tenant-a",
+        document_id="a-doc",
+        chunk_index=0,
+        vector=[0.0, 1.0, 0.0],
+        text="company policy",
+    )
+    _point(
+        chunk_store,
+        tenant_id="tenant-a",
+        document_id="z-doc",
+        chunk_index=0,
+        vector=[1.0, 0.0, 0.0],
+        text="company policy",
+    )
+
+    hits = _use_case(documents, embeddings, chunk_store, top_k=1).execute(_ACTOR_A, _QUESTION)
+
+    assert len(hits) == 1
+    assert hits[0].document_id == "z-doc"
+    assert hits[0].score == 1.0
+
+
+def test_configured_threshold_drops_a_lower_score() -> None:
+    from app.domain.ports.retrieval import RetrievedChunk
+
+    class FixedRetriever:
+        def search(self, **kwargs: object) -> list[RetrievedChunk]:
+            return [
+                RetrievedChunk("low", "low.pdf", 0, 0, "low", 0.24),
+                RetrievedChunk("keep", "keep.pdf", 1, 1, "keep", 0.25),
+                RetrievedChunk("under-default", "under.pdf", 2, 2, "under", 0.69),
+                RetrievedChunk("on-default", "on.pdf", 3, 3, "on", 0.70),
+            ]
+
+    documents = InMemoryDocumentRepository()
+    _save(documents, "ready-1", "tenant-a", DocumentStatus.READY)
+    embeddings = FakeEmbeddingGenerator()
+
+    loose = _use_case(
+        documents,
+        embeddings,
+        FixedRetriever(),  # type: ignore[arg-type]
+        score_threshold=0.25,
+    ).execute(_ACTOR_A, _QUESTION)
+    assert [hit.text for hit in loose] == ["keep", "under", "on"]
+
+    strict = _use_case(
+        documents,
+        embeddings,
+        FixedRetriever(),  # type: ignore[arg-type]
+        score_threshold=0.70,
+    ).execute(_ACTOR_A, _QUESTION)
+    assert [hit.text for hit in strict] == ["on"]
+
+
+class _Rewriter:
+    def __init__(self, result: str | Exception) -> None:
+        self.result = result
+        self.questions: list[str] = []
+
+    def rewrite(self, question: str) -> str:
+        self.questions.append(question)
+        if isinstance(self.result, Exception):
+            raise self.result
+        return self.result
+
+
+class _Reranker:
+    def __init__(self, result: list | Exception | None = None) -> None:  # noqa: ANN001
+        self.result = result
+        self.queries: list[str] = []
+
+    def rerank(self, query: str, chunks: list) -> list:  # noqa: ANN001
+        self.queries.append(query)
+        if isinstance(self.result, Exception):
+            raise self.result
+        if self.result is None:
+            return list(reversed(chunks))
+        return self.result
+
+
+def test_rewrite_failure_searches_the_typed_question() -> None:
+    documents = InMemoryDocumentRepository()
+    chunk_store = InMemoryChunkStore()
+    embeddings = FakeEmbeddingGenerator()
+    _save(documents, "ready-1", "tenant-a", DocumentStatus.READY)
+    _point(
+        chunk_store,
+        tenant_id="tenant-a",
+        document_id="ready-1",
+        chunk_index=0,
+        vector=[1.0, 1.0, 1.0],
+        text="policy text",
+    )
+    rewriter = _Rewriter(RuntimeError("rewrite down"))
+
+    hits = _use_case(documents, embeddings, chunk_store, rewriter=rewriter).execute(
+        _ACTOR_A,
+        _QUESTION,
+    )
+
+    assert len(hits) == 1
+    assert embeddings.texts == [[_QUESTION]]
+    assert chunk_store.search_calls[0]["question"] == _QUESTION
+    assert rewriter.questions == [_QUESTION]
+
+
+def test_rerank_receives_the_rewritten_query_and_reorders() -> None:
+    documents = InMemoryDocumentRepository()
+    chunk_store = InMemoryChunkStore()
+    embeddings = FakeEmbeddingGenerator()
+    _save(documents, "ready-1", "tenant-a", DocumentStatus.READY)
+    _save(documents, "ready-2", "tenant-a", DocumentStatus.READY)
+    _point(
+        chunk_store,
+        tenant_id="tenant-a",
+        document_id="ready-1",
+        chunk_index=0,
+        vector=[1.0, 1.0, 1.0],
+        text="alpha",
+    )
+    _point(
+        chunk_store,
+        tenant_id="tenant-a",
+        document_id="ready-2",
+        chunk_index=0,
+        vector=[1.0, 1.0, 1.0],
+        text="beta",
+    )
+    rewriter = _Rewriter("leave policy rules")
+    reranker = _Reranker()
+
+    hits = _use_case(
+        documents,
+        embeddings,
+        chunk_store,
+        rewriter=rewriter,  # type: ignore[arg-type]
+        reranker=reranker,  # type: ignore[arg-type]
+    ).execute(_ACTOR_A, _QUESTION)
+
+    assert embeddings.texts == [["leave policy rules"]]
+    assert chunk_store.search_calls[0]["question"] == "leave policy rules"
+    assert reranker.queries == ["leave policy rules"]
+    assert [hit.document_id for hit in hits] == ["ready-2", "ready-1"]
+
+
+def test_a_different_rerank_set_keeps_fused_order() -> None:
+    from app.domain.ports.retrieval import RetrievedChunk
+
+    documents = InMemoryDocumentRepository()
+    chunk_store = InMemoryChunkStore()
+    embeddings = FakeEmbeddingGenerator()
+    _save(documents, "ready-1", "tenant-a", DocumentStatus.READY)
+    _save(documents, "ready-2", "tenant-a", DocumentStatus.READY)
+    _point(
+        chunk_store,
+        tenant_id="tenant-a",
+        document_id="ready-1",
+        chunk_index=0,
+        vector=[1.0, 1.0, 1.0],
+        text="alpha",
+    )
+    _point(
+        chunk_store,
+        tenant_id="tenant-a",
+        document_id="ready-2",
+        chunk_index=0,
+        vector=[1.0, 1.0, 1.0],
+        text="beta",
+    )
+    reranker = _Reranker(
+        [RetrievedChunk("other", "other.pdf", 0, 0, "other", 1.0)]
+    )
+
+    hits = _use_case(
+        documents,
+        embeddings,
+        chunk_store,
+        reranker=reranker,  # type: ignore[arg-type]
+    ).execute(_ACTOR_A, _QUESTION)
+
+    assert [hit.document_id for hit in hits] == ["ready-1", "ready-2"]
+
+
+def test_rerank_failure_keeps_fused_order() -> None:
+    documents = InMemoryDocumentRepository()
+    chunk_store = InMemoryChunkStore()
+    embeddings = FakeEmbeddingGenerator()
+    _save(documents, "ready-1", "tenant-a", DocumentStatus.READY)
+    _save(documents, "ready-2", "tenant-a", DocumentStatus.READY)
+    _point(
+        chunk_store,
+        tenant_id="tenant-a",
+        document_id="ready-1",
+        chunk_index=0,
+        vector=[1.0, 1.0, 1.0],
+        text="alpha",
+    )
+    _point(
+        chunk_store,
+        tenant_id="tenant-a",
+        document_id="ready-2",
+        chunk_index=0,
+        vector=[1.0, 1.0, 1.0],
+        text="beta",
+    )
+    reranker = _Reranker(RuntimeError("rerank down"))
+
+    hits = _use_case(
+        documents,
+        embeddings,
+        chunk_store,
+        reranker=reranker,  # type: ignore[arg-type]
+    ).execute(_ACTOR_A, _QUESTION)
+
+    assert [hit.document_id for hit in hits] == ["ready-1", "ready-2"]
 
 
 def test_conversation_routes_are_registered() -> None:

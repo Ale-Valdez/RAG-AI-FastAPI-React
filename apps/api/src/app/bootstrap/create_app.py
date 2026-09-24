@@ -49,6 +49,8 @@ from app.infrastructure.http.error_handlers import register_error_handlers
 from app.infrastructure.http.health_router import build_health_router
 from app.infrastructure.ingestion.openai_embeddings import OpenAIEmbeddingGenerator
 from app.infrastructure.ingestion.qdrant_chunk_store import QdrantChunkStore
+from app.infrastructure.retrieval.openai_chunk_reranker import OpenAIChunkReranker
+from app.infrastructure.retrieval.openai_query_rewriter import OpenAIQueryRewriter
 from app.infrastructure.persistence.conversation_repository import (
     SqlAlchemyConversationRepository,
 )
@@ -176,6 +178,8 @@ class SessionBoundAskQuestion:
         self._score_threshold = score_threshold
         self._embeddings: OpenAIEmbeddingGenerator | None = None
         self._generator: OpenAIAnswerGenerator | None = None
+        self._rewriter: OpenAIQueryRewriter | None = None
+        self._reranker: OpenAIChunkReranker | None = None
 
     def execute(
         self,
@@ -184,12 +188,14 @@ class SessionBoundAskQuestion:
         document_id: str | None = None,
         conversation_id: str | None = None,
     ) -> Conversation:
-        embeddings, generator = self._clients()
+        embeddings, generator, rewriter, reranker = self._clients()
         with session_scope(self._open_session) as session:
             retrieve = RetrieveChunks(
                 SqlAlchemyDocumentRepository(session),
                 embeddings,
                 self._retriever,
+                rewriter=rewriter,
+                reranker=reranker,
                 top_k=self._top_k,
                 score_threshold=self._score_threshold,
             )
@@ -199,8 +205,20 @@ class SessionBoundAskQuestion:
                 generator,
             ).execute(actor, question, document_id, conversation_id)
 
-    def _clients(self) -> tuple[OpenAIEmbeddingGenerator, OpenAIAnswerGenerator]:
-        if self._embeddings is None or self._generator is None:
+    def _clients(
+        self,
+    ) -> tuple[
+        OpenAIEmbeddingGenerator,
+        OpenAIAnswerGenerator,
+        OpenAIQueryRewriter,
+        OpenAIChunkReranker,
+    ]:
+        if (
+            self._embeddings is None
+            or self._generator is None
+            or self._rewriter is None
+            or self._reranker is None
+        ):
             self._embeddings = OpenAIEmbeddingGenerator(
                 api_key=self._api_key,
                 model=self._embed_model,
@@ -209,7 +227,15 @@ class SessionBoundAskQuestion:
                 api_key=self._api_key,
                 model=self._chat_model,
             )
-        return self._embeddings, self._generator
+            self._rewriter = OpenAIQueryRewriter(
+                api_key=self._api_key,
+                model=self._chat_model,
+            )
+            self._reranker = OpenAIChunkReranker(
+                api_key=self._api_key,
+                model=self._chat_model,
+            )
+        return self._embeddings, self._generator, self._rewriter, self._reranker
 
 
 class SessionBoundGetConversation:

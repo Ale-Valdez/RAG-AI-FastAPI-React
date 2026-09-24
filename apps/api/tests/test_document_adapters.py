@@ -230,6 +230,7 @@ def test_qdrant_search_filters_tenant_and_does_not_create_collection() -> None:
             self.upserts: list[tuple[object, object]] = []
             self.deletes: list[tuple[object, object]] = []
             self.queries: list[dict[str, object]] = []
+            self.scrolls: list[dict[str, object]] = []
 
         def collection_exists(self, name: str) -> bool:
             assert name == "chunks"
@@ -263,12 +264,17 @@ def test_qdrant_search_filters_tenant_and_does_not_create_collection() -> None:
                 ]
             )
 
+        def scroll(self, **kwargs: object) -> tuple[list[object], None]:
+            self.scrolls.append(kwargs)
+            return [], None
+
     client = FakeClient()
     store = QdrantChunkStore(client=client)  # type: ignore[arg-type]
     actor = Actor(tenant_id="tenant-a", user_id="user-a")
     hits = store.search(
         actor=actor,
         query_vector=[1.0, 0.0, 0.0],
+        question="what is the policy?",
         document_id="doc-ready",
         ready_ids=["doc-ready", "doc-other"],
         top_k=5,
@@ -297,11 +303,16 @@ def test_qdrant_search_filters_tenant_and_does_not_create_collection() -> None:
     assert hits[0].chunk_index == 4
     assert hits[0].text == "ready text"
     assert hits[0].score == 0.91
+    assert len(client.scrolls) == 1
+    assert client.scrolls[0]["collection_name"] == "chunks"
+    assert client.scrolls[0]["scroll_filter"] == query_filter
+    assert client.scrolls[0]["limit"] == 128
 
     corpus_vector = [0.2, 0.4, 0.6]
     corpus = store.search(
         actor=actor,
         query_vector=corpus_vector,
+        question="what is the policy?",
         document_id=None,
         ready_ids=["doc-ready", "doc-other"],
         top_k=5,
@@ -323,6 +334,7 @@ def test_qdrant_search_filters_tenant_and_does_not_create_collection() -> None:
     skipped = store.search(
         actor=actor,
         query_vector=[1.0, 0.0],
+        question="what is the policy?",
         document_id=None,
         ready_ids=[],
         top_k=5,
@@ -330,13 +342,16 @@ def test_qdrant_search_filters_tenant_and_does_not_create_collection() -> None:
     )
     assert skipped == []
     assert len(client.queries) == queries_before_empty
+    assert len(client.scrolls) == 2
     assert client.created is None
 
     client.exists = False
     client.queries.clear()
+    client.scrolls.clear()
     missing = store.search(
         actor=actor,
         query_vector=[1.0, 0.0],
+        question="what is the policy?",
         document_id=None,
         ready_ids=["doc-ready"],
         top_k=5,
@@ -344,7 +359,310 @@ def test_qdrant_search_filters_tenant_and_does_not_create_collection() -> None:
     )
     assert missing == []
     assert client.queries == []
+    assert client.scrolls == []
     assert client.created is None
+
+
+def _point_payload(document_id: str, text: str, chunk_index: int = 0) -> dict[str, object]:
+    return {
+        "tenant_id": "tenant-a",
+        "document_id": document_id,
+        "filename": f"{document_id}.pdf",
+        "page": 1,
+        "chunk_index": chunk_index,
+        "text": text,
+    }
+
+
+def test_qdrant_text_search_reads_the_next_scroll_page() -> None:
+    from types import SimpleNamespace
+
+    from qdrant_client.http.models import FieldCondition, Filter, MatchAny, MatchValue
+
+    from app.domain.actor import Actor
+    from app.infrastructure.ingestion.qdrant_chunk_store import QdrantChunkStore
+
+    class FakeClient:
+        def __init__(self) -> None:
+            self.created = None
+            self.scrolls: list[dict[str, object]] = []
+
+        def collection_exists(self, name: str) -> bool:
+            assert name == "chunks"
+            return True
+
+        def create_collection(self, **kwargs: object) -> None:
+            self.created = kwargs
+
+        def query_points(self, **kwargs: object) -> SimpleNamespace:
+            return SimpleNamespace(points=[])
+
+        def scroll(self, **kwargs: object) -> tuple[list[SimpleNamespace], str | None]:
+            self.scrolls.append(kwargs)
+            if kwargs.get("offset") is None:
+                return [SimpleNamespace(payload=_point_payload("early", "unrelated text"))], "page-2"
+            return [SimpleNamespace(payload=_point_payload("later", "the policy applies"))], None
+
+    client = FakeClient()
+    store = QdrantChunkStore(client=client)  # type: ignore[arg-type]
+    hits = store.search(
+        actor=Actor(tenant_id="tenant-a", user_id="user-a"),
+        query_vector=[1.0, 0.0, 0.0],
+        question="what is the policy?",
+        document_id=None,
+        ready_ids=["later", "early"],
+        top_k=5,
+        score_threshold=0.70,
+    )
+
+    assert client.created is None
+    assert [call.get("offset") for call in client.scrolls] == [None, "page-2"]
+    assert isinstance(client.scrolls[0]["scroll_filter"], Filter)
+    assert client.scrolls[0]["scroll_filter"].must == [  # type: ignore[attr-defined]
+        FieldCondition(key="tenant_id", match=MatchValue(value="tenant-a")),
+        FieldCondition(key="document_id", match=MatchAny(any=["later", "early"])),
+    ]
+    assert len(hits) == 1
+    assert hits[0].document_id == "later"
+    assert hits[0].text == "the policy applies"
+    assert "what" not in hits[0].text
+    assert hits[0].score == 1.0
+
+
+def test_qdrant_fusion_keeps_a_chunk_found_by_both_legs() -> None:
+    from types import SimpleNamespace
+
+    from app.domain.actor import Actor
+    from app.infrastructure.ingestion.qdrant_chunk_store import QdrantChunkStore
+
+    class FakeClient:
+        def __init__(self) -> None:
+            self.created = None
+
+        def collection_exists(self, name: str) -> bool:
+            return True
+
+        def create_collection(self, **kwargs: object) -> None:
+            self.created = kwargs
+
+        def query_points(self, **kwargs: object) -> SimpleNamespace:
+            assert kwargs["limit"] == 1
+            return SimpleNamespace(
+                points=[
+                    SimpleNamespace(
+                        score=0.95,
+                        payload=_point_payload("z-doc", "company policy"),
+                    )
+                ]
+            )
+
+        def scroll(self, **kwargs: object) -> tuple[list[SimpleNamespace], None]:
+            return [
+                SimpleNamespace(payload=_point_payload("a-doc", "company policy")),
+                SimpleNamespace(payload=_point_payload("z-doc", "company policy")),
+            ], None
+
+    client = FakeClient()
+    store = QdrantChunkStore(client=client)  # type: ignore[arg-type]
+    hits = store.search(
+        actor=Actor(tenant_id="tenant-a", user_id="user-a"),
+        query_vector=[1.0, 0.0],
+        question="what is the policy?",
+        document_id=None,
+        ready_ids=["a-doc", "z-doc"],
+        top_k=1,
+        score_threshold=0.70,
+    )
+
+    assert client.created is None
+    assert len(hits) == 1
+    assert hits[0].document_id == "z-doc"
+    assert hits[0].score == 1.0
+
+
+def test_qdrant_text_only_tie_prefers_lower_document_id() -> None:
+    from types import SimpleNamespace
+
+    from app.domain.actor import Actor
+    from app.infrastructure.ingestion.qdrant_chunk_store import QdrantChunkStore
+
+    class FakeClient:
+        def collection_exists(self, name: str) -> bool:
+            return True
+
+        def query_points(self, **kwargs: object) -> SimpleNamespace:
+            return SimpleNamespace(points=[])
+
+        def scroll(self, **kwargs: object) -> tuple[list[SimpleNamespace], None]:
+            return [
+                SimpleNamespace(payload=_point_payload("z-doc", "company policy")),
+                SimpleNamespace(payload=_point_payload("a-doc", "company policy")),
+            ], None
+
+    store = QdrantChunkStore(client=FakeClient())  # type: ignore[arg-type]
+    hits = store.search(
+        actor=Actor(tenant_id="tenant-a", user_id="user-a"),
+        query_vector=[1.0, 0.0],
+        question="what is the policy?",
+        document_id=None,
+        ready_ids=["z-doc", "a-doc"],
+        top_k=1,
+        score_threshold=0.70,
+    )
+
+    assert len(hits) == 1
+    assert hits[0].document_id == "a-doc"
+
+
+def test_qdrant_text_leg_adds_nothing_without_a_distinctive_word() -> None:
+    from types import SimpleNamespace
+
+    from app.domain.actor import Actor
+    from app.infrastructure.ingestion.qdrant_chunk_store import QdrantChunkStore
+
+    class FakeClient:
+        def __init__(self) -> None:
+            self.created = None
+            self.scrolls: list[dict[str, object]] = []
+
+        def collection_exists(self, name: str) -> bool:
+            return True
+
+        def create_collection(self, **kwargs: object) -> None:
+            self.created = kwargs
+
+        def query_points(self, **kwargs: object) -> SimpleNamespace:
+            return SimpleNamespace(points=[])
+
+        def scroll(self, **kwargs: object) -> tuple[list[SimpleNamespace], None]:
+            self.scrolls.append(kwargs)
+            return [SimpleNamespace(payload=_point_payload("doc", "what this"))], None
+
+    client = FakeClient()
+    store = QdrantChunkStore(client=client)  # type: ignore[arg-type]
+    hits = store.search(
+        actor=Actor(tenant_id="tenant-a", user_id="user-a"),
+        query_vector=[1.0, 0.0],
+        question="what this",
+        document_id=None,
+        ready_ids=["doc"],
+        top_k=5,
+        score_threshold=0.70,
+    )
+
+    assert hits == []
+    assert client.scrolls == []
+    assert client.created is None
+
+
+def test_openai_query_rewriter_uses_the_chat_model() -> None:
+    from types import SimpleNamespace
+
+    from app.infrastructure.retrieval.openai_query_rewriter import OpenAIQueryRewriter
+
+    class Completions:
+        def __init__(self) -> None:
+            self.kwargs: dict[str, object] | None = None
+
+        def create(self, **kwargs: object) -> SimpleNamespace:
+            self.kwargs = kwargs
+            message = SimpleNamespace(content="  leave policy  ")
+            return SimpleNamespace(choices=[SimpleNamespace(message=message)])
+
+    class Client:
+        def __init__(self) -> None:
+            self.chat = SimpleNamespace(completions=Completions())
+
+    client = Client()
+    rewritten = OpenAIQueryRewriter(api_key="key", model="gpt-4o-mini", client=client).rewrite(
+        "what is the policy?"
+    )
+
+    assert rewritten == "leave policy"
+    kwargs = client.chat.completions.kwargs
+    assert kwargs is not None
+    assert kwargs["model"] == "gpt-4o-mini"
+    messages = kwargs["messages"]
+    assert isinstance(messages, list)
+    assert "what is the policy?" in messages[0]["content"]
+
+
+def test_openai_query_rewriter_rejects_an_empty_reply() -> None:
+    from types import SimpleNamespace
+
+    from app.infrastructure.retrieval.openai_query_rewriter import OpenAIQueryRewriter
+
+    class Completions:
+        def create(self, **kwargs: object) -> SimpleNamespace:
+            return SimpleNamespace(choices=[SimpleNamespace(message=SimpleNamespace(content="  "))])
+
+    client = SimpleNamespace(chat=SimpleNamespace(completions=Completions()))
+    rewriter = OpenAIQueryRewriter(api_key="key", model="gpt-4o-mini", client=client)
+    with pytest.raises(ValueError):
+        rewriter.rewrite("what is the policy?")
+
+
+def test_openai_reranker_copies_zero_based_bracket_indexes() -> None:
+    from types import SimpleNamespace
+
+    from app.domain.ports.retrieval import RetrievedChunk
+    from app.infrastructure.retrieval.openai_chunk_reranker import OpenAIChunkReranker
+
+    class Completions:
+        def __init__(self) -> None:
+            self.kwargs: dict[str, object] | None = None
+
+        def create(self, **kwargs: object) -> SimpleNamespace:
+            self.kwargs = kwargs
+            message = SimpleNamespace(content="1 0")
+            return SimpleNamespace(choices=[SimpleNamespace(message=message)])
+
+    class Client:
+        def __init__(self) -> None:
+            self.chat = SimpleNamespace(completions=Completions())
+
+    chunks = [
+        RetrievedChunk("a", "a.pdf", 0, 0, "first", 0.9),
+        RetrievedChunk("b", "b.pdf", 1, 1, "second", 0.8),
+    ]
+    client = Client()
+    ranked = OpenAIChunkReranker(api_key="key", model="gpt-4o-mini", client=client).rerank(
+        "leave policy",
+        chunks,
+    )
+
+    assert [hit.document_id for hit in ranked] == ["b", "a"]
+    kwargs = client.chat.completions.kwargs
+    assert kwargs is not None
+    assert kwargs["model"] == "gpt-4o-mini"
+    messages = kwargs["messages"]
+    assert isinstance(messages, list)
+    content = messages[0]["content"]
+    assert isinstance(content, str)
+    assert "starts at 0" in content
+    assert "Copy the bracket indexes" in content
+    assert "[0] first" in content
+    assert "[1] second" in content
+
+
+def test_openai_reranker_rejects_a_one_based_order() -> None:
+    from types import SimpleNamespace
+
+    from app.domain.ports.retrieval import RetrievedChunk
+    from app.infrastructure.retrieval.openai_chunk_reranker import OpenAIChunkReranker
+
+    class Completions:
+        def create(self, **kwargs: object) -> SimpleNamespace:
+            return SimpleNamespace(choices=[SimpleNamespace(message=SimpleNamespace(content="1 2"))])
+
+    client = SimpleNamespace(chat=SimpleNamespace(completions=Completions()))
+    reranker = OpenAIChunkReranker(api_key="key", model="gpt-4o-mini", client=client)
+    chunks = [
+        RetrievedChunk("a", "a.pdf", 0, 0, "first", 0.9),
+        RetrievedChunk("b", "b.pdf", 1, 1, "second", 0.8),
+    ]
+    with pytest.raises(ValueError):
+        reranker.rerank("leave policy", chunks)
 
 
 def test_openai_embeddings_orders_by_index(monkeypatch) -> None:  # noqa: ANN001
