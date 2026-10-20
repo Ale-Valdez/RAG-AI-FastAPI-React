@@ -84,7 +84,7 @@ class SessionBoundGetCurrentMember:
         self._open_session = open_session
 
     def execute(self, actor: Actor) -> CurrentMember:
-        with session_scope(self._open_session) as session:
+        with session_scope(self._open_session, actor.tenant_id) as session:
             return GetCurrentMember(SqlAlchemyUserRepository(session)).execute(actor)
 
 
@@ -102,7 +102,7 @@ class SessionBoundUploadDocument:
         self._max_size_bytes = max_size_bytes
 
     def execute(self, actor: Actor, command: UploadDocumentCommand) -> Document:
-        with session_scope(self._open_session) as session:
+        with session_scope(self._open_session, actor.tenant_id) as session:
             return UploadDocument(
                 SqlAlchemyDocumentRepository(session),
                 self._bytes_store,
@@ -116,7 +116,7 @@ class SessionBoundListDocuments:
         self._open_session = open_session
 
     def execute(self, actor: Actor) -> list[Document]:
-        with session_scope(self._open_session) as session:
+        with session_scope(self._open_session, actor.tenant_id) as session:
             return ListDocuments(SqlAlchemyDocumentRepository(session)).execute(actor)
 
 
@@ -132,7 +132,7 @@ class SessionBoundDeleteDocument:
         self._chunk_store = chunk_store
 
     def execute(self, actor: Actor, document_id: str) -> str:
-        with session_scope(self._open_session) as session:
+        with session_scope(self._open_session, actor.tenant_id) as session:
             return DeleteDocument(
                 SqlAlchemyDocumentRepository(session),
                 self._bytes_store,
@@ -150,7 +150,7 @@ class SessionBoundReingestDocument:
         self._jobs = jobs
 
     def execute(self, actor: Actor, document_id: str) -> Document:
-        with session_scope(self._open_session) as session:
+        with session_scope(self._open_session, actor.tenant_id) as session:
             return ReingestDocument(
                 SqlAlchemyDocumentRepository(session),
                 self._jobs,
@@ -189,7 +189,7 @@ class SessionBoundAskQuestion:
         conversation_id: str | None = None,
     ) -> Conversation:
         embeddings, generator, rewriter, reranker = self._clients()
-        with session_scope(self._open_session) as session:
+        with session_scope(self._open_session, actor.tenant_id) as session:
             retrieve = RetrieveChunks(
                 SqlAlchemyDocumentRepository(session),
                 embeddings,
@@ -243,7 +243,7 @@ class SessionBoundGetConversation:
         self._open_session = open_session
 
     def execute(self, actor: Actor, conversation_id: str) -> Conversation:
-        with session_scope(self._open_session) as session:
+        with session_scope(self._open_session, actor.tenant_id) as session:
             return GetConversation(SqlAlchemyConversationRepository(session)).execute(
                 actor, conversation_id
             )
@@ -254,7 +254,7 @@ class SessionBoundListConversations:
         self._open_session = open_session
 
     def execute(self, actor: Actor) -> list[Conversation]:
-        with session_scope(self._open_session) as session:
+        with session_scope(self._open_session, actor.tenant_id) as session:
             return ListConversations(SqlAlchemyConversationRepository(session)).execute(actor)
 
 

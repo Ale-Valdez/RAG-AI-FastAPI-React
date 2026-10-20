@@ -729,8 +729,11 @@ def test_ask_execute_passes_wired_rewrite_and_rerank(monkeypatch: pytest.MonkeyP
                 created_at=datetime(2026, 1, 1, tzinfo=UTC),
             )
 
+    seen: dict[str, object] = {}
+
     @contextmanager
-    def fake_scope(open_session: object):  # noqa: ANN202
+    def fake_scope(open_session: object, tenant_id: str | None = None):  # noqa: ANN202
+        seen["tenant_id"] = tenant_id
         yield object()
 
     monkeypatch.setattr("app.bootstrap.create_app.OpenAIQueryRewriter", build_rewriter)
@@ -764,6 +767,7 @@ def test_ask_execute_passes_wired_rewrite_and_rerank(monkeypatch: pytest.MonkeyP
 
     ask.execute(_ACTOR_A, _QUESTION)
 
+    assert seen["tenant_id"] == _ACTOR_A.tenant_id
     assert built["rewriter"] is rewriter
     assert built["reranker"] is reranker
     assert built["rewriter_model"] == settings.openai_chat_model == "gpt-4o-mini"

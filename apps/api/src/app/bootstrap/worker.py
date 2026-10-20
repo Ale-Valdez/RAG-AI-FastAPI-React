@@ -9,6 +9,7 @@ from app.infrastructure.ingestion.page_chunker import PageAwareChunker
 from app.infrastructure.ingestion.pypdf_extractor import PypdfTextExtractor
 from app.infrastructure.ingestion.qdrant_chunk_store import QdrantChunkStore
 from app.infrastructure.persistence.document_repository import SqlAlchemyDocumentRepository
+from app.infrastructure.persistence.session import clear_rls_session, pin_rls_session
 from app.infrastructure.storage.s3_document_bytes import S3DocumentBytes
 
 
@@ -37,6 +38,7 @@ class SessionBoundProcessDocument:
     def execute(self, actor: Actor, document_id: str) -> ProcessOutcome:
         session = self._open_session()
         try:
+            pin_rls_session(session, actor.tenant_id)
             use_case = ProcessDocument(
                 SqlAlchemyDocumentRepository(session),
                 self._bytes_store,
@@ -55,6 +57,7 @@ class SessionBoundProcessDocument:
             session.rollback()
             raise
         finally:
+            clear_rls_session(session)
             session.close()
 
 
