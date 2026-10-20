@@ -9,6 +9,7 @@ from app.application.documents.models import UploadDocumentCommand
 from app.domain.actor import Actor
 from app.domain.documents import Document
 from app.infrastructure.auth.jwt import JwtService
+from app.infrastructure.auth.oidc import OidcTokenVerifier
 from app.infrastructure.http.dependencies.auth import build_require_actor
 from app.infrastructure.http.responses.api_response import success_body
 
@@ -44,9 +45,10 @@ def build_documents_router(
     delete_document: DeleteDocumentUseCase,
     reingest_document: ReingestDocumentUseCase,
     jwt_service: JwtService,
+    oidc_verifier: OidcTokenVerifier | None = None,
 ) -> APIRouter:
     router = APIRouter(prefix="/api/v1")
-    require_actor = build_require_actor(jwt_service)
+    require_actor = build_require_actor(jwt_service, oidc_verifier)
 
     @router.post("/documents")
     def documents_upload(

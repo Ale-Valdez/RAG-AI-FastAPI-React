@@ -13,3 +13,7 @@
 - source_spec: `/home/ale/Escritorio/DEV/Own/AI-RAG/_bmad-output/implementation-artifacts/spec-3-1-find-ready-chunks-for-a-question.md`
   summary: Chunk point identity is `document_id` plus `chunk_index`, so two tenants cannot both keep that same pair.
   evidence: `chunk_point_id` and the in-memory upsert key predate retrieval. Search filters by tenant, but a later upsert with the same id overwrites the earlier point. Real document ids are distinct, so this story's tenant filter is not what removes the other tenant's chunk.
+
+- source_spec: `/home/ale/Escritorio/DEV/Own/AI-RAG/_bmad-output/implementation-artifacts/spec-5-2-sign-in-with-an-identity-provider.md`
+  summary: `GET /api/v1/me` is 403 in memory and 401 on Postgres when the token's user exists under a different tenant.
+  evidence: `GetCurrentMember` calls `assert_same_tenant` when the row is returned. Story 5.1 already records that Postgres row-level security hides that row, so `get_by_id` returns nothing and the route is 401. The in-memory fake still returns the row. This story does not change that lookup.

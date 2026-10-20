@@ -15,6 +15,9 @@ class Settings(BaseSettings):
     rag_top_k: int = 5
     rag_score_threshold: float = 0.70
     jwt_secret: str = "change-me"
+    oidc_issuer: str = ""
+    oidc_audience: str = ""
+    oidc_jwks_url: str = ""
     bootstrap_tenant_name: str = ""
     bootstrap_admin_email: str = ""
     bootstrap_admin_password: str = ""

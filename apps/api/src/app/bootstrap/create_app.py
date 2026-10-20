@@ -21,6 +21,7 @@ from app.domain.actor import Actor
 from app.domain.chat import Conversation
 from app.domain.documents import Document
 from app.infrastructure.auth.jwt import JwtService, require_signing_secret
+from app.infrastructure.auth.oidc import OidcAccessTokenVerifier, OidcTokenVerifier
 from app.infrastructure.auth.passwords import Argon2PasswordHasher
 from app.infrastructure.chat.openai_answer_generator import OpenAIAnswerGenerator
 from app.infrastructure.config.settings import Settings, load_settings
@@ -324,6 +325,16 @@ def _default_chat(
     )
 
 
+def _oidc_verifier_from_settings(settings: Settings) -> OidcAccessTokenVerifier | None:
+    if settings.oidc_issuer and settings.oidc_audience and settings.oidc_jwks_url:
+        return OidcAccessTokenVerifier(
+            issuer=settings.oidc_issuer,
+            audience=settings.oidc_audience,
+            jwks_url=settings.oidc_jwks_url,
+        )
+    return None
+
+
 def create_app(
     *,
     settings: Settings | None = None,
@@ -331,6 +342,7 @@ def create_app(
     login: LoginUseCase | None = None,
     get_current_member: GetCurrentMemberUseCase | None = None,
     jwt_service: JwtService | None = None,
+    oidc_verifier: OidcTokenVerifier | None = None,
     upload_document: UploadDocumentUseCase | None = None,
     list_documents: ListDocumentsUseCase | None = None,
     delete_document: DeleteDocumentUseCase | None = None,
@@ -368,6 +380,10 @@ def create_app(
         get_conversation = get_conversation or default_get
         list_conversations = list_conversations or default_list
 
+    resolved_oidc = (
+        oidc_verifier if oidc_verifier is not None else _oidc_verifier_from_settings(loaded)
+    )
+
     application = FastAPI(title=loaded.app_name)
     application.state.jwt_service = jwt_service
     application.add_middleware(
@@ -386,6 +402,7 @@ def create_app(
             login=login,
             get_current_member=get_current_member,
             jwt_service=jwt_service,
+            oidc_verifier=resolved_oidc,
         )
     )
     application.include_router(
@@ -395,6 +412,7 @@ def create_app(
             delete_document=delete_document,
             reingest_document=reingest_document,
             jwt_service=jwt_service,
+            oidc_verifier=resolved_oidc,
         )
     )
     application.include_router(
@@ -403,6 +421,7 @@ def create_app(
             get_conversation=get_conversation,
             list_conversations=list_conversations,
             jwt_service=jwt_service,
+            oidc_verifier=resolved_oidc,
         )
     )
     return application

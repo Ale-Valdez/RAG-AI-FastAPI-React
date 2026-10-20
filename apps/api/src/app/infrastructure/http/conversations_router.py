@@ -9,6 +9,7 @@ from pydantic import BaseModel
 from app.domain.actor import Actor
 from app.domain.chat import Conversation, Message, SourceRef
 from app.infrastructure.auth.jwt import JwtService
+from app.infrastructure.auth.oidc import OidcTokenVerifier
 from app.infrastructure.http.dependencies.auth import build_require_actor
 from app.infrastructure.http.responses.api_response import success_body
 
@@ -66,9 +67,10 @@ def build_conversations_router(
     get_conversation: GetConversationUseCase,
     list_conversations: ListConversationsUseCase,
     jwt_service: JwtService,
+    oidc_verifier: OidcTokenVerifier | None = None,
 ) -> APIRouter:
     router = APIRouter(prefix="/api/v1")
-    require_actor = build_require_actor(jwt_service)
+    require_actor = build_require_actor(jwt_service, oidc_verifier)
 
     @router.post("/conversations")
     def conversations_create(
