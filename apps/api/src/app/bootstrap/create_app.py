@@ -28,6 +28,7 @@ from app.infrastructure.config.settings import Settings, load_settings
 from app.infrastructure.health.postgres_probe import PostgresProbe
 from app.infrastructure.health.qdrant_probe import QdrantProbe
 from app.infrastructure.health.redis_probe import RedisProbe
+from app.infrastructure.http.access_log import AccessLogMiddleware
 from app.infrastructure.http.auth_router import (
     GetCurrentMemberUseCase,
     LoginUseCase,
@@ -50,6 +51,7 @@ from app.infrastructure.http.error_handlers import register_error_handlers
 from app.infrastructure.http.health_router import build_health_router
 from app.infrastructure.ingestion.openai_embeddings import OpenAIEmbeddingGenerator
 from app.infrastructure.ingestion.qdrant_chunk_store import QdrantChunkStore
+from app.infrastructure.ops_log import install_ops_stderr_handler
 from app.infrastructure.retrieval.openai_chunk_reranker import OpenAIChunkReranker
 from app.infrastructure.retrieval.openai_query_rewriter import OpenAIQueryRewriter
 from app.infrastructure.persistence.conversation_repository import (
@@ -351,6 +353,7 @@ def create_app(
     get_conversation: GetConversationUseCase | None = None,
     list_conversations: ListConversationsUseCase | None = None,
 ) -> FastAPI:
+    install_ops_stderr_handler()
     loaded = settings or load_settings()
     probes = readiness_probes if readiness_probes is not None else default_probes(loaded)
 
@@ -393,6 +396,7 @@ def create_app(
         allow_methods=["*"],
         allow_headers=["*"],
     )
+    application.add_middleware(AccessLogMiddleware)
     register_error_handlers(application)
     application.include_router(
         build_health_router(GetHealth(loaded.app_name), GetReadiness(probes))

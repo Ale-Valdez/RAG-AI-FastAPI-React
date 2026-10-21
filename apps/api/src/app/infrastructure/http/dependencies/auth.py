@@ -4,7 +4,7 @@ from collections.abc import Callable
 from typing import Annotated, Any
 
 import jwt
-from fastapi import Depends
+from fastapi import Depends, Request
 from fastapi.security import HTTPAuthorizationCredentials, HTTPBearer
 
 from app.domain.actor import Actor
@@ -21,6 +21,7 @@ def build_require_actor(
     oidc_verifier: OidcTokenVerifier | None = None,
 ) -> Callable[..., Actor]:
     def require_actor(
+        request: Request,
         credentials: Annotated[HTTPAuthorizationCredentials | None, Depends(_bearer)],
     ) -> Actor:
         if credentials is None or credentials.scheme.lower() != "bearer":
@@ -33,7 +34,9 @@ def build_require_actor(
             claims = oidc_verifier.verify_access_token(token)
         else:
             raise UnauthenticatedError("Invalid or expired token")
-        return _actor_from_claims(claims)
+        actor = _actor_from_claims(claims)
+        request.state.tenant_id = actor.tenant_id
+        return actor
 
     return require_actor
 
