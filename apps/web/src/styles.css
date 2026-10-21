@@ -12,6 +12,7 @@ body {
   max-width: 52rem;
   margin: 0 auto;
   padding: 2rem 1.25rem 4rem;
+  overflow-wrap: anywhere;
 }
 
 header h1 {
@@ -59,4 +60,173 @@ nav a.active {
   justify-content: space-between;
   padding: 0.35rem 0;
   border-bottom: 1px solid #edf2f7;
+}
+
+.panel h2,
+.state h2 {
+  margin-top: 0;
+}
+
+.panel .state {
+  background: transparent;
+  border: 0;
+  border-radius: 0;
+  padding: 0;
+}
+
+.header-actions {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 0.75rem;
+  margin-top: 1rem;
+}
+
+.health-link {
+  color: #4d6075;
+  font-size: 0.875rem;
+}
+
+label {
+  display: flex;
+  flex-direction: column;
+  gap: 0.35rem;
+}
+
+input,
+select,
+textarea,
+button {
+  font: inherit;
+}
+
+input,
+select,
+textarea {
+  color: inherit;
+  background: white;
+  border: 1px solid #d7e1ec;
+  border-radius: 8px;
+  padding: 0.45rem 0.6rem;
+}
+
+textarea {
+  min-height: 6rem;
+  resize: vertical;
+}
+
+.form,
+.composer {
+  display: flex;
+  flex-direction: column;
+  align-items: stretch;
+  gap: 0.75rem;
+}
+
+.form button,
+.composer button {
+  align-self: flex-start;
+}
+
+button {
+  background: #1f4e79;
+  color: white;
+  border: 0;
+  border-radius: 8px;
+  padding: 0.45rem 0.8rem;
+  cursor: pointer;
+}
+
+button.secondary {
+  background: white;
+  color: #1f4e79;
+  border: 1px solid #d7e1ec;
+}
+
+button:disabled {
+  opacity: 0.55;
+  cursor: not-allowed;
+}
+
+.library,
+.conversation-list,
+.sources {
+  list-style: none;
+  margin: 0;
+  padding: 0;
+}
+
+.library li,
+.conversation-list li {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 0.5rem 0.75rem;
+  align-items: center;
+  padding: 0.65rem 0;
+  border-bottom: 1px solid #edf2f7;
+}
+
+.library .name {
+  flex: 1 1 12rem;
+  word-break: break-word;
+}
+
+.status {
+  color: #4d6075;
+}
+
+.status-failed {
+  color: #9b1c1c;
+}
+
+.row-actions {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 0.5rem;
+}
+
+.thread-layout {
+  display: grid;
+  grid-template-columns: minmax(12rem, 16rem) minmax(0, 1fr);
+  gap: 1rem;
+  align-items: start;
+}
+
+.conversation-list a {
+  color: #1f4e79;
+  text-decoration: none;
+}
+
+.conversation-list a.active {
+  font-weight: 700;
+}
+
+.message + .message {
+  margin-top: 1rem;
+  padding-top: 1rem;
+  border-top: 1px solid #edf2f7;
+}
+
+.messages {
+  margin-bottom: 1.25rem;
+}
+
+.message p {
+  margin: 0.25rem 0;
+  white-space: pre-wrap;
+}
+
+.sources {
+  color: #4d6075;
+  font-size: 0.9rem;
+}
+
+.sources li + li {
+  margin-top: 0.2rem;
+}
+
+@media (max-width: 720px) {
+  .thread-layout {
+    grid-template-columns: 1fr;
+  }
 }

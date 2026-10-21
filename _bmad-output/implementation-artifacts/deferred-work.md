@@ -17,3 +17,15 @@
 - source_spec: `/home/ale/Escritorio/DEV/Own/AI-RAG/_bmad-output/implementation-artifacts/spec-5-2-sign-in-with-an-identity-provider.md`
   summary: `GET /api/v1/me` is 403 in memory and 401 on Postgres when the token's user exists under a different tenant.
   evidence: `GetCurrentMember` calls `assert_same_tenant` when the row is returned. Story 5.1 already records that Postgres row-level security hides that row, so `get_by_id` returns nothing and the route is 401. The in-memory fake still returns the row. This story does not change that lookup.
+
+- source_spec: `/home/ale/Escritorio/DEV/Own/AI-RAG/_bmad-output/implementation-artifacts/spec-web-login-documents-and-chat.md`
+  summary: Chat shows the API page index, so the first PDF page appears as page 0.
+  evidence: `PypdfTextExtractor` stores `enumerate` from 0 and the web prints `source.page`. This story shows that field and does not change the API.
+
+- source_spec: `/home/ale/Escritorio/DEV/Own/AI-RAG/_bmad-output/implementation-artifacts/spec-web-login-documents-and-chat.md`
+  summary: A blank `VITE_API_PROXY_TARGET` is used as the Vite proxy target.
+  evidence: `??` only replaces nullish values. The previous `process.env` line behaved the same way, so this is pre-existing.
+
+- source_spec: `/home/ale/Escritorio/DEV/Own/AI-RAG/_bmad-output/implementation-artifacts/spec-web-login-documents-and-chat.md`
+  summary: Guest redirects, session clear on 401, the Bearer envelope, the ready-document rule, document polling, refresh logout, and health cache mode have no automated test.
+  evidence: The web spec forbids a test runner. The human chose to accept the production build and manual checks instead.
