@@ -29,7 +29,7 @@
 # - Dev moves story to 'review', then runs code-review (fresh context, different LLM recommended)
 # - Retrospective appends its action items to action_items; the status view surfaces open ones
 generated: 09-21-2026 18:22
-last_updated: 10-20-2026 21:11
+last_updated: 10-21-2026 10:45
 project: AI-RAG
 project_key: NOKEY
 tracking_system: file-system
@@ -58,5 +58,5 @@ development_status:
   5-1-enforce-tenant-isolation-in-postgres: review
   5-2-sign-in-with-an-identity-provider: review
   5-3-see-what-the-api-and-the-worker-did: review
-  5-4-run-on-managed-postgres-amazon-s3-and-kubernetes: backlog
+  5-4-run-on-managed-postgres-amazon-s3-and-kubernetes: review
   epic-5-retrospective: optional

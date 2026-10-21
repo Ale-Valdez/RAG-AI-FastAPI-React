@@ -1,0 +1,27 @@
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: worker
+  namespace: ai-rag
+spec:
+  replicas: 1
+  selector:
+    matchLabels:
+      app: worker
+  template:
+    metadata:
+      labels:
+        app: worker
+    spec:
+      containers:
+        - name: worker
+          image: ai-rag-api:latest
+          command:
+            - celery
+            - -A
+            - app.infrastructure.worker.celery_app:celery_app
+            - worker
+            - --loglevel=INFO
+          envFrom:
+            - secretRef:
+                name: ai-rag-env

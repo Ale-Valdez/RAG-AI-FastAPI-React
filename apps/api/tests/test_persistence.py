@@ -19,7 +19,12 @@ from app.infrastructure.persistence.base import Base
 from app.infrastructure.persistence.conversation_repository import SqlAlchemyConversationRepository
 from app.infrastructure.persistence.document_repository import SqlAlchemyDocumentRepository
 from app.infrastructure.persistence.models import DocumentRow, TenantRow
-from app.infrastructure.persistence.session import create_session_factory, session_scope, to_sqlalchemy_url
+from app.infrastructure.persistence.session import (
+    create_session_factory,
+    pin_rls_session,
+    session_scope,
+    to_sqlalchemy_url,
+)
 from app.infrastructure.persistence.tenant_repository import SqlAlchemyTenantRepository
 from app.infrastructure.persistence.user_repository import SqlAlchemyUserRepository
 
@@ -30,6 +35,74 @@ def test_to_sqlalchemy_url_rewrites_postgresql() -> None:
         == "postgresql+psycopg://app:app@localhost:5432/app"
     )
     assert to_sqlalchemy_url("sqlite:///:memory:") == "sqlite:///:memory:"
+
+
+def test_managed_postgres_url_keeps_app_user_and_session_pins_rls(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    database_url = "postgresql://app:placeholder@db.example:5432/app?sslmode=require"
+    assert to_sqlalchemy_url(database_url) == (
+        "postgresql+psycopg://app:placeholder@db.example:5432/app?sslmode=require"
+    )
+
+    monkeypatch.setenv("DATABASE_URL", database_url)
+    configured: dict[str, object] = {}
+
+    class FakeContext:
+        config = type("Config", (), {"config_file_name": None})()
+
+        @staticmethod
+        def is_offline_mode() -> bool:
+            return True
+
+        @staticmethod
+        def configure(**kwargs: object) -> None:
+            configured.update(kwargs)
+
+        @staticmethod
+        def begin_transaction() -> object:
+            from contextlib import nullcontext
+
+            return nullcontext()
+
+        @staticmethod
+        def run_migrations() -> None:
+            return None
+
+    import alembic
+
+    monkeypatch.setattr(alembic, "context", FakeContext())
+    env_path = Path(__file__).resolve().parents[1] / "alembic" / "env.py"
+    compiled = compile(env_path.read_text(), str(env_path), "exec")
+    exec(compiled, {"__name__": "alembic_env_under_test"})  # noqa: S102
+    assert configured["url"] == to_sqlalchemy_url(database_url)
+
+    engine = create_engine("sqlite://")
+    session = Session(bind=engine)
+    pin_rls_session(session, "tenant-1")
+    statements: list[str] = []
+    parameters: list[object] = []
+
+    class Dialect:
+        name = "postgresql"
+
+    class FakeConnection:
+        dialect = Dialect()
+
+        def exec_driver_sql(self, statement: str, *_args: object, **_kwargs: object) -> None:
+            statements.append(statement)
+
+        def scalar(
+            self, statement: object, params: object = None, **_kwargs: object
+        ) -> None:
+            statements.append(str(statement))
+            parameters.append(params)
+
+    session.dispatch.after_begin(session, None, FakeConnection())  # type: ignore[arg-type]
+    assert statements[0] == "SET LOCAL ROLE app_rls"
+    assert "app.tenant_id" in statements[1]
+    assert parameters == [{"tenant_id": "tenant-1"}]
+    session.close()
 
 
 def test_sqlalchemy_repositories_round_trip() -> None:

@@ -96,6 +96,51 @@ def test_s3_document_bytes_put_get_delete_and_path_style(monkeypatch) -> None:  
     assert config.s3.get("addressing_style") == "path"  # type: ignore[union-attr]
 
 
+def test_s3_document_bytes_amazon_client_omits_endpoint_and_path_style(monkeypatch) -> None:  # noqa: ANN001
+    captured: dict[str, object] = {}
+    put_calls: list[dict[str, object]] = []
+
+    class FakeClient:
+        def put_object(self, **kwargs: object) -> None:
+            put_calls.append(kwargs)
+
+    def fake_boto_client(service: str, **kwargs: object) -> FakeClient:
+        assert service == "s3"
+        captured.update(kwargs)
+        return FakeClient()
+
+    monkeypatch.setattr(
+        "app.infrastructure.storage.s3_document_bytes.boto3.client",
+        fake_boto_client,
+    )
+    S3DocumentBytes(
+        endpoint_url="",
+        region="us-east-1",
+        bucket="ai-rag-documents",
+        access_key_id="access-key",
+        secret_access_key="secret-key",
+        use_path_style=False,
+    ).put(
+        tenant_id="tenant_id",
+        document_id="document_id",
+        filename="filename",
+        content=b"pdf",
+    )
+
+    assert captured["endpoint_url"] is None
+    assert captured["config"] is None
+    assert captured["region_name"] == "us-east-1"
+    assert captured["aws_access_key_id"] == "access-key"
+    assert captured["aws_secret_access_key"] == "secret-key"
+    assert put_calls == [
+        {
+            "Bucket": "ai-rag-documents",
+            "Key": "tenant_id/document_id/filename",
+            "Body": b"pdf",
+        }
+    ]
+
+
 def test_celery_document_job_queue_send_task(monkeypatch) -> None:  # noqa: ANN001
     sent: dict[str, object] = {}
 

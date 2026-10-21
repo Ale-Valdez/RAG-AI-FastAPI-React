@@ -1,0 +1,19 @@
+apiVersion: batch/v1
+kind: Job
+metadata:
+  name: ai-rag-migrate
+  namespace: ai-rag
+spec:
+  template:
+    spec:
+      restartPolicy: Never
+      containers:
+        - name: migrate
+          image: ai-rag-api:latest
+          command:
+            - alembic
+            - upgrade
+            - head
+          envFrom:
+            - secretRef:
+                name: ai-rag-env
