@@ -1,4 +1,4 @@
-import { apiData } from "../../api/client";
+import { apiBytes, apiData } from "../../api/client";
 
 export type SourceRef = {
   document_id: string;
@@ -27,6 +27,10 @@ function questionBody(question: string, documentId?: string): string {
   const payload: { question: string; document_id?: string } = { question };
   if (documentId) payload.document_id = documentId;
   return JSON.stringify(payload);
+}
+
+export function getDocumentFile(documentId: string): Promise<Blob> {
+  return apiBytes(`/api/v1/documents/${encodeURIComponent(documentId)}/file`);
 }
 
 export function listConversations(): Promise<ConversationSummary[]> {

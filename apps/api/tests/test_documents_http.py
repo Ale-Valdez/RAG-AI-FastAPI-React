@@ -8,6 +8,7 @@ from app.application.auth.get_current_member import GetCurrentMember
 from app.application.auth.login import Login
 from app.application.auth.models import BootstrapCommand
 from app.application.documents.delete_document import DeleteDocument
+from app.application.documents.get_document_file import GetDocumentFile
 from app.application.documents.list_documents import ListDocuments
 from app.application.documents.reingest_document import ReingestDocument
 from app.application.documents.upload_document import UploadDocument
@@ -68,6 +69,7 @@ def _app() -> tuple[
             list_documents=ListDocuments(documents),
             delete_document=DeleteDocument(documents, bytes_store, chunk_store),
             reingest_document=ReingestDocument(documents, jobs),
+            get_document_file=GetDocumentFile(documents, bytes_store),
         )
     )
     return (
@@ -398,6 +400,158 @@ def test_delete_and_reingest_reject_invalid_bearer() -> None:
     assert bytes_store.objects
     assert jobs.jobs == []
     assert chunk_store.points == {}
+
+
+def test_get_file_returns_stored_pdf() -> None:
+    client, jwt_service, _, _, _, _, user_id, tenant_id = _app()
+    headers = _auth_headers(jwt_service, user_id, tenant_id)
+    upload = client.post(
+        "/api/v1/documents",
+        headers=headers,
+        files={"file": ("handbook.pdf", _PDF, "application/pdf")},
+    )
+    document_id = upload.json()["data"]["id"]
+    response = client.get(f"/api/v1/documents/{document_id}/file", headers=headers)
+    assert response.status_code == 200
+    assert response.content == _PDF
+    assert response.headers["content-type"] == "application/pdf"
+    assert response.headers["content-disposition"] == 'inline; filename="handbook.pdf"'
+
+
+def test_get_file_disposition_strips_quotes_and_line_breaks() -> None:
+    client, jwt_service, documents, bytes_store, _, _, user_id, tenant_id = _app()
+    filename = 'hand"book\r\n.pdf'
+    documents.save(
+        Document(
+            id="doc-1",
+            tenant_id=TenantId(tenant_id),
+            filename=filename,
+            status=DocumentStatus.FAILED,
+        )
+    )
+    bytes_store.put(
+        tenant_id=tenant_id,
+        document_id="doc-1",
+        filename=filename,
+        content=_PDF,
+    )
+    response = client.get(
+        "/api/v1/documents/doc-1/file",
+        headers=_auth_headers(jwt_service, user_id, tenant_id),
+    )
+    assert response.status_code == 200
+    assert response.content == _PDF
+    assert response.headers["content-disposition"] == 'inline; filename="handbook.pdf"'
+
+
+def test_get_file_non_latin1_filename_returns_pdf() -> None:
+    from urllib.parse import unquote
+
+    client, jwt_service, documents, bytes_store, _, _, user_id, tenant_id = _app()
+    filename = "案内.pdf"
+    documents.save(
+        Document(
+            id="doc-1",
+            tenant_id=TenantId(tenant_id),
+            filename=filename,
+            status=DocumentStatus.READY,
+        )
+    )
+    bytes_store.put(
+        tenant_id=tenant_id,
+        document_id="doc-1",
+        filename=filename,
+        content=_PDF,
+    )
+    response = client.get(
+        "/api/v1/documents/doc-1/file",
+        headers=_auth_headers(jwt_service, user_id, tenant_id),
+    )
+    disposition = response.headers["content-disposition"]
+    disposition.encode("latin-1")
+    encoded_name = disposition.split("filename*=UTF-8''", 1)[1]
+    assert response.status_code == 200
+    assert response.content == _PDF
+    assert unquote(encoded_name) == filename
+
+
+def test_get_file_unknown_id_is_not_found() -> None:
+    client, jwt_service, _, _, _, _, user_id, tenant_id = _app()
+    response = client.get(
+        "/api/v1/documents/missing/file",
+        headers=_auth_headers(jwt_service, user_id, tenant_id),
+    )
+    assert response.status_code == 404
+    assert response.json()["error"]["code"] == "NOT_FOUND"
+    assert response.json()["error"]["message"] == "document not found"
+
+
+def test_get_file_other_tenant_is_not_found() -> None:
+    client, jwt_service, documents, bytes_store, _, _, user_id, tenant_id = _app()
+    documents.save(
+        Document(
+            id="doc-1",
+            tenant_id=TenantId("other-tenant"),
+            filename="handbook.pdf",
+            status=DocumentStatus.READY,
+        )
+    )
+    bytes_store.put(
+        tenant_id="other-tenant",
+        document_id="doc-1",
+        filename="handbook.pdf",
+        content=_PDF,
+    )
+    response = client.get(
+        "/api/v1/documents/doc-1/file",
+        headers=_auth_headers(jwt_service, user_id, tenant_id),
+    )
+    assert response.status_code == 404
+    assert response.json()["error"]["code"] == "NOT_FOUND"
+    assert response.json()["error"]["message"] == "document not found"
+    assert bytes_store.get_calls == 0
+
+
+def test_get_file_missing_object_is_not_found() -> None:
+    client, jwt_service, documents, bytes_store, _, _, user_id, tenant_id = _app()
+    documents.save(
+        Document(
+            id="doc-1",
+            tenant_id=TenantId(tenant_id),
+            filename="handbook.pdf",
+            status=DocumentStatus.PENDING,
+        )
+    )
+    response = client.get(
+        "/api/v1/documents/doc-1/file",
+        headers=_auth_headers(jwt_service, user_id, tenant_id),
+    )
+    assert response.status_code == 404
+    assert response.json()["error"]["code"] == "NOT_FOUND"
+    assert response.json()["error"]["message"] == "document not found"
+    assert bytes_store.get_calls == 1
+
+
+def test_get_file_requires_bearer() -> None:
+    client, _, documents, bytes_store, _, _, _, _ = _app()
+    documents.save(
+        Document(
+            id="doc-1",
+            tenant_id=TenantId("t1"),
+            filename="handbook.pdf",
+            status=DocumentStatus.READY,
+        )
+    )
+    bytes_store.put(
+        tenant_id="t1",
+        document_id="doc-1",
+        filename="handbook.pdf",
+        content=_PDF,
+    )
+    response = client.get("/api/v1/documents/doc-1/file")
+    assert response.status_code == 401
+    assert response.json()["error"]["code"] == "UNAUTHENTICATED"
+    assert bytes_store.get_calls == 0
 
 
 def test_reingest_requires_bearer() -> None:

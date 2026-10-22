@@ -5,6 +5,9 @@ from typing import Any
 import boto3
 from botocore.client import BaseClient
 from botocore.config import Config
+from botocore.exceptions import ClientError
+
+_MISSING_OBJECT_CODES = frozenset({"NoSuchKey", "404", "NotFound"})
 
 
 class S3DocumentBytes:
@@ -42,10 +45,13 @@ class S3DocumentBytes:
         )
 
     def get(self, *, tenant_id: str, document_id: str, filename: str) -> bytes:
-        response = self._get_client().get_object(
-            Bucket=self._bucket,
-            Key=self._key(tenant_id, document_id, filename),
-        )
+        key = self._key(tenant_id, document_id, filename)
+        try:
+            response = self._get_client().get_object(Bucket=self._bucket, Key=key)
+        except ClientError as exc:
+            if _is_missing_object(exc):
+                raise KeyError(key) from exc
+            raise
         body = response["Body"].read()
         return bytes(body)
 
@@ -73,3 +79,9 @@ class S3DocumentBytes:
     @staticmethod
     def _key(tenant_id: str, document_id: str, filename: str) -> str:
         return f"{tenant_id}/{document_id}/{filename}"
+
+
+def _is_missing_object(exc: ClientError) -> bool:
+    error = exc.response.get("Error") or {}
+    code = error.get("Code", "")
+    return str(code) in _MISSING_OBJECT_CODES

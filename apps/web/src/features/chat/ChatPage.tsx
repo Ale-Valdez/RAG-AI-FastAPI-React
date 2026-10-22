@@ -10,13 +10,13 @@ import { useChatSession } from "./useChatSession";
 function chatGridClass(railOpen: boolean, panelOpen: boolean): string {
   const grid = "grid min-h-0 flex-1 gap-4";
   if (railOpen && panelOpen) {
-    return `${grid} grid-rows-[auto_minmax(0,1fr)_auto] lg:grid-cols-[minmax(12rem,16rem)_minmax(0,1fr)_minmax(16rem,22rem)] lg:grid-rows-1`;
+    return `${grid} grid-rows-[auto_minmax(0,1fr)_minmax(0,1fr)] lg:grid-cols-[minmax(12rem,16rem)_minmax(0,1fr)_minmax(16rem,22rem)] lg:grid-rows-1`;
   }
   if (railOpen) {
     return `${grid} grid-rows-[auto_minmax(0,1fr)] lg:grid-cols-[minmax(12rem,16rem)_minmax(0,1fr)] lg:grid-rows-1`;
   }
   if (panelOpen) {
-    return `${grid} grid-rows-[minmax(0,1fr)_auto] lg:grid-cols-[minmax(0,1fr)_minmax(16rem,22rem)] lg:grid-rows-1`;
+    return `${grid} grid-rows-[minmax(0,1fr)_minmax(0,1fr)] lg:grid-cols-[minmax(0,1fr)_minmax(16rem,22rem)] lg:grid-rows-1`;
   }
   return "flex min-h-0 flex-1 flex-col";
 }

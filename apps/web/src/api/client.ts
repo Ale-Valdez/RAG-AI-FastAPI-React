@@ -47,12 +47,36 @@ export async function getJson<T>(
   return (await response.json()) as T;
 }
 
-export async function apiData<T>(path: string, init: RequestInit = {}): Promise<T> {
+function withBearer(init: RequestInit): { headers: Headers; token: string | null } {
   const headers = new Headers(init.headers);
   const token = readToken();
   if (token) {
     headers.set("Authorization", `Bearer ${token}`);
   }
+  return { headers, token };
+}
+
+async function readEnvelope(response: Response): Promise<Envelope | null> {
+  try {
+    return (await response.json()) as Envelope;
+  } catch {
+    return null;
+  }
+}
+
+function rejectResponse(response: Response, body: Envelope | null, token: string | null): never {
+  if (response.status === 401) {
+    handleUnauthorized(token);
+  }
+  throw new ApiError(
+    body?.error?.message ?? `Request failed: ${response.status}`,
+    response.status,
+    body?.error?.code ?? "HTTP_ERROR",
+  );
+}
+
+export async function apiData<T>(path: string, init: RequestInit = {}): Promise<T> {
+  const { headers, token } = withBearer(init);
   if (
     init.body !== undefined &&
     !(init.body instanceof FormData) &&
@@ -62,23 +86,20 @@ export async function apiData<T>(path: string, init: RequestInit = {}): Promise<
   }
 
   const response = await fetch(`${baseUrl}${path}`, { ...init, headers, cache: "no-store" });
-  let body: Envelope | null = null;
-  try {
-    body = (await response.json()) as Envelope;
-  } catch {
-    body = null;
-  }
+  const body = await readEnvelope(response);
 
   if (response.ok && body && body.error == null && body.data !== undefined && body.data !== null) {
     return body.data as T;
   }
 
-  if (response.status === 401) {
-    handleUnauthorized(token);
+  return rejectResponse(response, body, token);
+}
+
+export async function apiBytes(path: string, init: RequestInit = {}): Promise<Blob> {
+  const { headers, token } = withBearer(init);
+  const response = await fetch(`${baseUrl}${path}`, { ...init, headers, cache: "no-store" });
+  if (response.ok) {
+    return response.blob();
   }
-  throw new ApiError(
-    body?.error?.message ?? `Request failed: ${response.status}`,
-    response.status,
-    body?.error?.code ?? "HTTP_ERROR",
-  );
+  return rejectResponse(response, await readEnvelope(response), token);
 }

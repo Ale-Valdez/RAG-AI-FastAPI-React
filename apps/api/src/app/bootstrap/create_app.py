@@ -9,6 +9,7 @@ from app.application.chat.ask_question import AskQuestion
 from app.application.chat.get_conversation import GetConversation
 from app.application.chat.list_conversations import ListConversations
 from app.application.documents.delete_document import DeleteDocument
+from app.application.documents.get_document_file import DocumentFile, GetDocumentFile
 from app.application.documents.list_documents import ListDocuments
 from app.application.documents.models import UploadDocumentCommand
 from app.application.documents.reingest_document import ReingestDocument
@@ -42,6 +43,7 @@ from app.infrastructure.http.conversations_router import (
 )
 from app.infrastructure.http.documents_router import (
     DeleteDocumentUseCase,
+    GetDocumentFileUseCase,
     ListDocumentsUseCase,
     ReingestDocumentUseCase,
     UploadDocumentUseCase,
@@ -140,6 +142,19 @@ class SessionBoundDeleteDocument:
                 SqlAlchemyDocumentRepository(session),
                 self._bytes_store,
                 self._chunk_store,
+            ).execute(actor, document_id)
+
+
+class SessionBoundGetDocumentFile:
+    def __init__(self, open_session: LazySessionFactory, bytes_store: S3DocumentBytes) -> None:
+        self._open_session = open_session
+        self._bytes_store = bytes_store
+
+    def execute(self, actor: Actor, document_id: str) -> DocumentFile:
+        with session_scope(self._open_session, actor.tenant_id) as session:
+            return GetDocumentFile(
+                SqlAlchemyDocumentRepository(session),
+                self._bytes_store,
             ).execute(actor, document_id)
 
 
@@ -280,6 +295,7 @@ def _default_documents(
     SessionBoundListDocuments,
     SessionBoundDeleteDocument,
     SessionBoundReingestDocument,
+    SessionBoundGetDocumentFile,
 ]:
     open_session = LazySessionFactory(settings.database_url)
     bytes_store = S3DocumentBytes(
@@ -303,6 +319,7 @@ def _default_documents(
         SessionBoundListDocuments(open_session),
         SessionBoundDeleteDocument(open_session, bytes_store, chunk_store),
         SessionBoundReingestDocument(open_session, jobs),
+        SessionBoundGetDocumentFile(open_session, bytes_store),
     )
 
 
@@ -349,6 +366,7 @@ def create_app(
     list_documents: ListDocumentsUseCase | None = None,
     delete_document: DeleteDocumentUseCase | None = None,
     reingest_document: ReingestDocumentUseCase | None = None,
+    get_document_file: GetDocumentFileUseCase | None = None,
     ask_question: AskQuestionUseCase | None = None,
     get_conversation: GetConversationUseCase | None = None,
     list_conversations: ListConversationsUseCase | None = None,
@@ -368,14 +386,20 @@ def create_app(
         or list_documents is None
         or delete_document is None
         or reingest_document is None
+        or get_document_file is None
     ):
-        default_upload, default_list, default_delete, default_reingest = _default_documents(
-            loaded
-        )
+        (
+            default_upload,
+            default_list,
+            default_delete,
+            default_reingest,
+            default_get_file,
+        ) = _default_documents(loaded)
         upload_document = upload_document or default_upload
         list_documents = list_documents or default_list
         delete_document = delete_document or default_delete
         reingest_document = reingest_document or default_reingest
+        get_document_file = get_document_file or default_get_file
 
     if ask_question is None or get_conversation is None or list_conversations is None:
         default_ask, default_get, default_list = _default_chat(loaded)
@@ -415,6 +439,7 @@ def create_app(
             list_documents=list_documents,
             delete_document=delete_document,
             reingest_document=reingest_document,
+            get_document_file=get_document_file,
             jwt_service=jwt_service,
             oidc_verifier=resolved_oidc,
         )

@@ -1,10 +1,12 @@
 from __future__ import annotations
 
 from typing import Protocol
+from urllib.parse import quote
 
 from fastapi import APIRouter, Depends, File, UploadFile
-from fastapi.responses import JSONResponse
+from fastapi.responses import JSONResponse, Response
 
+from app.application.documents.get_document_file import DocumentFile
 from app.application.documents.models import UploadDocumentCommand
 from app.domain.actor import Actor
 from app.domain.documents import Document
@@ -30,6 +32,10 @@ class ReingestDocumentUseCase(Protocol):
     def execute(self, actor: Actor, document_id: str) -> Document: ...
 
 
+class GetDocumentFileUseCase(Protocol):
+    def execute(self, actor: Actor, document_id: str) -> DocumentFile: ...
+
+
 def _document_payload(document: Document) -> dict[str, str]:
     return {
         "id": document.id,
@@ -38,12 +44,24 @@ def _document_payload(document: Document) -> dict[str, str]:
     }
 
 
+def _inline_disposition(filename: str) -> str:
+    cleaned = filename.replace('"', "").replace("\r", "").replace("\n", "")
+    try:
+        cleaned.encode("latin-1")
+    except UnicodeEncodeError:
+        fallback = cleaned.encode("latin-1", errors="replace").decode("latin-1")
+        encoded = quote(cleaned, safe="")
+        return f"inline; filename=\"{fallback}\"; filename*=UTF-8''{encoded}"
+    return f'inline; filename="{cleaned}"'
+
+
 def build_documents_router(
     *,
     upload_document: UploadDocumentUseCase,
     list_documents: ListDocumentsUseCase,
     delete_document: DeleteDocumentUseCase,
     reingest_document: ReingestDocumentUseCase,
+    get_document_file: GetDocumentFileUseCase,
     jwt_service: JwtService,
     oidc_verifier: OidcTokenVerifier | None = None,
 ) -> APIRouter:
@@ -85,5 +103,17 @@ def build_documents_router(
     ) -> JSONResponse:
         document = reingest_document.execute(actor, document_id)
         return JSONResponse(success_body(_document_payload(document)), status_code=200)
+
+    @router.get("/documents/{document_id}/file")
+    def documents_file(
+        document_id: str,
+        actor: Actor = Depends(require_actor),
+    ) -> Response:
+        document_file = get_document_file.execute(actor, document_id)
+        return Response(
+            content=document_file.content,
+            media_type="application/pdf",
+            headers={"Content-Disposition": _inline_disposition(document_file.filename)},
+        )
 
     return router

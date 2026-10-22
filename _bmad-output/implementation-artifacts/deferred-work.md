@@ -57,3 +57,19 @@
 - source_spec: `/home/ale/Escritorio/DEV/Own/AI-RAG/_bmad-output/implementation-artifacts/spec-persist-web-session.md`
   summary: Product colors are not available as Tailwind theme tokens.
   evidence: The stylesheet has no `@theme` block. The Tailwind intent kept the existing hex rules and did not convert screens. This story does not add utility styling.
+
+- source_spec: `/home/ale/Escritorio/DEV/Own/AI-RAG/_bmad-output/implementation-artifacts/spec-chat-pdf-source-panel.md`
+  summary: The source panel's page jump, failure text, and blob revoke have no automated test.
+  evidence: `apps/web` has no test runner. The spec assigns the citation click to a manual check. A wrong `#page=` or a leaked blob URL would not fail the API suite.
+
+- source_spec: `/home/ale/Escritorio/DEV/Own/AI-RAG/_bmad-output/implementation-artifacts/spec-chat-pdf-source-panel.md`
+  summary: Nothing asserts that an open source panel shares height and drops the `max-h-48` cap.
+  evidence: The classes are in `ChatPage` and `sourcePanel`. `apps/web` has no test runner, so restoring the short cap would not fail a test.
+
+- source_spec: `/home/ale/Escritorio/DEV/Own/AI-RAG/_bmad-output/implementation-artifacts/spec-chat-pdf-source-panel.md`
+  summary: A 401 from the PDF fetch has no test that the session is cleared.
+  evidence: `apiBytes` calls `rejectResponse`, which calls `onUnauthorized`. `apps/web` has no test runner, so skipping that call would not fail a test.
+
+- source_spec: `/home/ale/Escritorio/DEV/Own/AI-RAG/_bmad-output/implementation-artifacts/spec-chat-pdf-source-panel.md`
+  summary: On a large screen the PDF stays in a column at most 22rem wide, with no zoom or download control.
+  evidence: That column width predates this story. The spec required a readable height, which the shared row provides. A wider viewer is a separate layout change.

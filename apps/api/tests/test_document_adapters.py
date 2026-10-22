@@ -96,6 +96,59 @@ def test_s3_document_bytes_put_get_delete_and_path_style(monkeypatch) -> None:  
     assert config.s3.get("addressing_style") == "path"  # type: ignore[union-attr]
 
 
+def _missing_object_store(code: str) -> S3DocumentBytes:
+    from botocore.exceptions import ClientError
+
+    class FakeClient:
+        def get_object(self, **kwargs: object) -> dict[str, object]:
+            raise ClientError(
+                {"Error": {"Code": code, "Message": "Not Found"}},
+                "GetObject",
+            )
+
+    return S3DocumentBytes(
+        endpoint_url="http://garage:3900",
+        region="garage",
+        bucket="ai-rag-documents",
+        access_key_id="key",
+        secret_access_key="secret",
+        use_path_style=True,
+        client=FakeClient(),  # type: ignore[arg-type]
+    )
+
+
+@pytest.mark.parametrize("code", ["NoSuchKey", "404", "NotFound"])
+def test_s3_document_bytes_missing_object_is_key_error(code: str) -> None:
+    with pytest.raises(KeyError, match="t1/d1/handbook.pdf"):
+        _missing_object_store(code).get(
+            tenant_id="t1", document_id="d1", filename="handbook.pdf"
+        )
+
+
+def test_s3_document_bytes_access_denied_is_client_error() -> None:
+    from botocore.exceptions import ClientError
+
+    class FakeClient:
+        def get_object(self, **kwargs: object) -> dict[str, object]:
+            raise ClientError(
+                {"Error": {"Code": "AccessDenied", "Message": "denied"}},
+                "GetObject",
+            )
+
+    store = S3DocumentBytes(
+        endpoint_url="http://garage:3900",
+        region="garage",
+        bucket="ai-rag-documents",
+        access_key_id="key",
+        secret_access_key="secret",
+        use_path_style=True,
+        client=FakeClient(),  # type: ignore[arg-type]
+    )
+    with pytest.raises(ClientError) as raised:
+        store.get(tenant_id="t1", document_id="d1", filename="handbook.pdf")
+    assert raised.value.response["Error"]["Code"] == "AccessDenied"
+
+
 def test_s3_document_bytes_amazon_client_omits_endpoint_and_path_style(monkeypatch) -> None:  # noqa: ANN001
     captured: dict[str, object] = {}
     put_calls: list[dict[str, object]] = []

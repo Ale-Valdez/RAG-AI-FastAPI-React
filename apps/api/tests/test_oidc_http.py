@@ -20,6 +20,7 @@ from app.application.auth.get_current_member import GetCurrentMember
 from app.application.auth.login import Login
 from app.application.auth.models import BootstrapCommand
 from app.application.documents.delete_document import DeleteDocument
+from app.application.documents.get_document_file import GetDocumentFile
 from app.application.documents.reingest_document import ReingestDocument
 from app.application.documents.upload_document import UploadDocument
 from app.bootstrap.create_app import create_app
@@ -174,6 +175,7 @@ def _build(
             list_documents=listed,
             delete_document=DeleteDocument(documents, bytes_store, InMemoryChunkStore()),
             reingest_document=ReingestDocument(documents, jobs),
+            get_document_file=GetDocumentFile(documents, bytes_store),
             ask_question=_UnusedAsk(),
             get_conversation=_UnusedGet(),
             list_conversations=conversations,

@@ -13,6 +13,7 @@ from app.application.chat.ask_question import AskQuestion
 from app.application.chat.get_conversation import GetConversation
 from app.application.chat.list_conversations import ListConversations
 from app.application.documents.delete_document import DeleteDocument
+from app.application.documents.get_document_file import GetDocumentFile
 from app.application.documents.list_documents import ListDocuments
 from app.application.documents.reingest_document import ReingestDocument
 from app.application.documents.upload_document import UploadDocument
@@ -81,6 +82,7 @@ class _ChatApp:
                 list_documents=ListDocuments(self.documents),
                 delete_document=DeleteDocument(self.documents, self.bytes_store, self.chunk_store),
                 reingest_document=ReingestDocument(self.documents, self.jobs),
+                get_document_file=GetDocumentFile(self.documents, self.bytes_store),
                 ask_question=AskQuestion(self.conversations, retrieve, self.generator),
                 get_conversation=GetConversation(self.conversations),
                 list_conversations=ListConversations(self.conversations),
