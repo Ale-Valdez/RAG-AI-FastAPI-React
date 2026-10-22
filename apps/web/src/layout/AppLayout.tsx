@@ -1,9 +1,12 @@
-import { Link, NavLink, Outlet, useNavigate } from "react-router-dom";
+import { Outlet, useLocation, useNavigate } from "react-router-dom";
 import { useSession } from "../auth/session";
+import Header from "./Header";
 
 export default function AppLayout() {
   const { token, me, logout } = useSession();
   const navigate = useNavigate();
+  const { pathname } = useLocation();
+  const isChat = pathname.startsWith("/chat");
 
   function onSignOut() {
     logout();
@@ -11,38 +14,17 @@ export default function AppLayout() {
   }
 
   return (
-    <div className="shell">
-      <header>
-        <p className="eyebrow">ai-rag</p>
-        <h1>AI-RAG</h1>
-        {me ? (
-          <>
-            <p className="lede">{me.email}</p>
-            <p className="muted">{me.tenant_id}</p>
-          </>
-        ) : (
-          <p className="lede">AI Knowledge Assistant grounded in organization documents.</p>
-        )}
-        {token ? (
-          <nav>
-            <NavLink to="/documents">Documents</NavLink>
-            <NavLink to="/chat">Chat</NavLink>
-          </nav>
-        ) : null}
-        <div className="header-actions">
-          {token ? (
-            <button type="button" className="secondary sign-out" onClick={onSignOut}>
-              Sign out
-            </button>
-          ) : null}
-          <Link className="health-link" to="/health">
-            Health
-          </Link>
-        </div>
-      </header>
-      <main>
-        <Outlet />
-      </main>
+    <div className={isChat ? "flex h-dvh flex-col overflow-hidden" : "flex min-h-dvh flex-col"}>
+      {token ? <Header token={token} me={me} onSignOut={onSignOut} /> : null}
+      <div
+        className={`mx-auto flex w-full max-w-7xl flex-col px-4 sm:px-6 lg:px-8 ${
+          isChat ? "min-h-0 flex-1 overflow-hidden" : "flex-1"
+        }`}
+      >
+        <main className={isChat ? "flex min-h-0 flex-1 flex-col overflow-hidden py-4" : "py-16"}>
+          <Outlet />
+        </main>
+      </div>
     </div>
   );
 }

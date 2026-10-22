@@ -1,3 +1,6 @@
+@import "tailwindcss";
+
+@layer components {
 :root {
   color: #10233a;
   background: #f4f7fb;
@@ -17,6 +20,12 @@ body {
 
 header h1 {
   margin: 0.2rem 0 0.5rem;
+  font-size: 2em;
+  font-weight: 700;
+}
+
+p {
+  margin: 1em 0;
 }
 
 .eyebrow,
@@ -65,6 +74,9 @@ nav a.active {
 .panel h2,
 .state h2 {
   margin-top: 0;
+  margin-bottom: 0.83em;
+  font-size: 1.5em;
+  font-weight: 700;
 }
 
 .panel .state {
@@ -85,6 +97,7 @@ nav a.active {
 .health-link {
   color: #4d6075;
   font-size: 0.875rem;
+  text-decoration: underline;
 }
 
 label {
@@ -229,4 +242,13 @@ button:disabled {
   .thread-layout {
     grid-template-columns: 1fr;
   }
+}
+}
+
+.card {
+  @apply bg-white border border-gray-200 dark:border-gray-200 rounded-md p-4 shadow-md;
+}
+
+.card-rounded-xl {
+  @apply bg-white border border-gray-200 dark:border-gray-200 rounded-xl p-4 shadow-md;
 }
