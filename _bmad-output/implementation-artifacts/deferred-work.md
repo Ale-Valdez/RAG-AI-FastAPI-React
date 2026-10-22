@@ -33,3 +33,27 @@
 - source_spec: `/home/ale/Escritorio/DEV/Own/AI-RAG/_bmad-output/implementation-artifacts/spec-web-router-and-layout.md`
   summary: A 401 that arrives after the user leaves Documents or Chat does not open `/login`.
   evidence: `onUnauthorized` only clears the in-memory token. `RequireAuth` is mounted on those two routes, so a 401 while `/health` is open leaves the signed-out shell on `/health`. The same wrappers existed before this router move. The earlier web spec says any `/api/v1` 401 opens `/login`.
+
+- source_spec: `/home/ale/Escritorio/DEV/Own/AI-RAG/_bmad-output/implementation-artifacts/spec-web-tailwind.md`
+  summary: The web image installs from `package.json` only, so the lockfile hashes are not used at image build time.
+  evidence: `apps/web/Dockerfile` copies `package.json` and runs `npm install` before `COPY . .`. That order predates Tailwind. Direct dependencies stay on the exact versions in `package.json`.
+
+- source_spec: `/home/ale/Escritorio/DEV/Own/AI-RAG/_bmad-output/implementation-artifacts/spec-web-tailwind.md`
+  summary: The Compose `web_node_modules` volume does not install packages when `package.json` changes.
+  evidence: The volume is filled from the image only while empty. This install was applied with `docker compose exec web npm install`. A later dependency still needs that command, or a new volume, before Vite can import it.
+
+- source_spec: `/home/ale/Escritorio/DEV/Own/AI-RAG/_bmad-output/implementation-artifacts/spec-persist-web-session.md`
+  summary: Reload, sign-out, a 401, and startup `/me` have no in-repo test.
+  evidence: The frozen spec forbids a web test runner, and `apps/web` has none. `npm run build` typechecks and bundles only. A headless Chrome script outside the repo passed those rows once.
+
+- source_spec: `/home/ale/Escritorio/DEV/Own/AI-RAG/_bmad-output/implementation-artifacts/spec-persist-web-session.md`
+  summary: `apps/web/package-lock.json` has no integrity hash for packages npm did not refetch, including `react`.
+  evidence: The `react` lock entry has a version and no `resolved` or `integrity`. The lockfile was created by the Tailwind install. This story did not add it. The image still runs `npm install` from `package.json` only.
+
+- source_spec: `/home/ale/Escritorio/DEV/Own/AI-RAG/_bmad-output/implementation-artifacts/spec-persist-web-session.md`
+  summary: Tailwind preflight still changes line height, box sizing, list markers, and the file button.
+  evidence: `styles.css` restores headings, paragraph margins, and the Health underline only. It does not set `box-sizing`, `line-height`, or `::file-selector-button`. Those rules come from the Tailwind install, not from session restore.
+
+- source_spec: `/home/ale/Escritorio/DEV/Own/AI-RAG/_bmad-output/implementation-artifacts/spec-persist-web-session.md`
+  summary: Product colors are not available as Tailwind theme tokens.
+  evidence: The stylesheet has no `@theme` block. The Tailwind intent kept the existing hex rules and did not convert screens. This story does not add utility styling.
