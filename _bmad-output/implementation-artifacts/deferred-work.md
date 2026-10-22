@@ -29,3 +29,7 @@
 - source_spec: `/home/ale/Escritorio/DEV/Own/AI-RAG/_bmad-output/implementation-artifacts/spec-web-login-documents-and-chat.md`
   summary: Guest redirects, session clear on 401, the Bearer envelope, the ready-document rule, document polling, refresh logout, and health cache mode have no automated test.
   evidence: The web spec forbids a test runner. The human chose to accept the production build and manual checks instead.
+
+- source_spec: `/home/ale/Escritorio/DEV/Own/AI-RAG/_bmad-output/implementation-artifacts/spec-web-router-and-layout.md`
+  summary: A 401 that arrives after the user leaves Documents or Chat does not open `/login`.
+  evidence: `onUnauthorized` only clears the in-memory token. `RequireAuth` is mounted on those two routes, so a 401 while `/health` is open leaves the signed-out shell on `/health`. The same wrappers existed before this router move. The earlier web spec says any `/api/v1` 401 opens `/login`.
