@@ -49,6 +49,8 @@ class TextChunk:
 
 
 class PdfTextExtractor(Protocol):
+    def count_pages(self, content: bytes) -> int: ...
+
     def extract(self, content: bytes) -> ExtractedPdf: ...
 
 

@@ -87,10 +87,18 @@ services:
     build:
       context: ./apps/api
       target: worker
-    command: celery -A app.infrastructure.worker.celery_app:celery_app worker --loglevel=INFO
+    command: celery -A app.infrastructure.worker.celery_app:celery_app worker --loglevel=INFO --concurrency=1 --max-tasks-per-child=1
+    # Cap the worker so a PDF cannot push the host into swap. memswap_limit
+    # equal to mem_limit disables container swap.
+    mem_limit: 6g
+    memswap_limit: 6g
     environment:
       APP_NAME: AI-RAG
       DOCLING_ARTIFACTS_PATH: /opt/docling/models
+      OMP_NUM_THREADS: "2"
+      MKL_NUM_THREADS: "2"
+      OPENBLAS_NUM_THREADS: "2"
+      NUMEXPR_NUM_THREADS: "2"
       DATABASE_URL: postgresql://app:app@postgres:5432/app
       REDIS_URL: redis://redis:6379/0
       QDRANT_URL: http://qdrant:6333

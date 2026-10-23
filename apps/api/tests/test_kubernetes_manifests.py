@@ -12,6 +12,8 @@ _CELERY_COMMAND = """          command:
             - app.infrastructure.worker.celery_app:celery_app
             - worker
             - --loglevel=INFO
+            - --concurrency=1
+            - --max-tasks-per-child=1
 """
 _MIGRATE_COMMAND = """          command:
             - alembic
@@ -125,7 +127,7 @@ def test_compose_keeps_garage_s3_and_celery_command() -> None:
     assert "S3_REGION: garage" in compose
     assert 'S3_USE_PATH_STYLE: "true"' in compose
     assert (
-        "command: celery -A app.infrastructure.worker.celery_app:celery_app worker --loglevel=INFO"
+        "command: celery -A app.infrastructure.worker.celery_app:celery_app worker --loglevel=INFO --concurrency=1 --max-tasks-per-child=1"
         in compose
     )
     assert "target: api" in compose

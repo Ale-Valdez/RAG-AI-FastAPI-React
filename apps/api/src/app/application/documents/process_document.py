@@ -72,11 +72,12 @@ class ProcessDocument:
                 document_id=document.id,
                 filename=document.filename,
             )
+            # Page count is cheap. Docling's layout models are not, so an
+            # over-limit PDF never reaches the converter.
+            if self._extractor.count_pages(content) > self._max_pages:
+                return self._fail(document)
             extracted = self._extractor.extract(content)
         except Exception:
-            return self._fail(document)
-
-        if extracted.page_count > self._max_pages:
             return self._fail(document)
 
         try:

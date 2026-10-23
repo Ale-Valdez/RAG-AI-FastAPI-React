@@ -17,24 +17,27 @@ function StatusIcon({ status }: { status: LibraryDocument["status"] }) {
    const statusInfo: Record<LibraryDocument["status"], StatusInfo> = {
     "pending": {
         title: "Pending",
-        color: "yellow-400",
+        color: "yellow",
     },
     "processing": {
         title: "Processing",
-        color: "blue-400",
+        color: "blue",
     },
     "ready": {
         title: "Ready",
-        color: "green-500",
+        color: "green",
     },
     "failed": {
         title: "Failed",
-        color: "red-500",
+        color: "red",
     },
    };
   return (
     <span title={statusInfo[status]?.title} className="inline-flex items-center gap-1">
-      <span className={`w-4 h-4 rounded-full bg-${statusInfo[status]?.color} inline-block`} />
+      <span
+        style={{ backgroundColor: `var(--tw-bg-${statusInfo[status]?.color})`, background: statusInfo[status]?.color.replace('-', ''), border: '1px solid var(--tw-border-color)', display: 'inline-block' }}
+        className="w-4 h-4 rounded-full align-middle"
+      />
       <span className="sr-only">{statusInfo[status]?.title}</span>
     </span>
   );

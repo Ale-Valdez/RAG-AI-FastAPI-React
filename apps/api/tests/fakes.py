@@ -144,6 +144,12 @@ class FakePdfTextExtractor:
         self.extracted = extracted if extracted is not None else _default_extracted()
         self.fail = fail
         self.calls = 0
+        self.count_calls = 0
+
+    def count_pages(self, content: bytes) -> int:
+        del content
+        self.count_calls += 1
+        return self.extracted.page_count
 
     def extract(self, content: bytes) -> ExtractedPdf:
         self.calls += 1

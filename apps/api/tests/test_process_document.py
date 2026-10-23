@@ -138,8 +138,9 @@ def test_too_many_pages_fails_and_clears_points() -> None:
             for index in range(3)
         ],
     )
+    extractor = FakePdfTextExtractor(extracted)
     use_case, documents, bytes_store, _, chunk_store = _process(
-        extractor=FakePdfTextExtractor(extracted),
+        extractor=extractor,
         max_pages=2,
     )
     _pending_doc(documents, bytes_store)
@@ -157,6 +158,8 @@ def test_too_many_pages_fails_and_clears_points() -> None:
     assert documents.get("doc-1").status is DocumentStatus.FAILED  # type: ignore[union-attr]
     assert chunk_store.points == {}
     assert chunk_store.upsert_calls == 0
+    assert extractor.count_calls == 1
+    assert extractor.calls == 0
 
 
 def test_extract_fails_or_no_chunks() -> None:
@@ -347,8 +350,9 @@ def test_blank_pages_still_count_toward_page_limit() -> None:
         page_count=3,
         blocks=[ContentBlock(kind="text", level=None, text="visible body", page=0)],
     )
+    extractor = FakePdfTextExtractor(extracted)
     use_case, documents, bytes_store, _, chunk_store = _process(
-        extractor=FakePdfTextExtractor(extracted),
+        extractor=extractor,
         max_pages=2,
     )
     _pending_doc(documents, bytes_store)
@@ -357,4 +361,5 @@ def test_blank_pages_still_count_toward_page_limit() -> None:
     assert documents.get("doc-1").status is DocumentStatus.FAILED  # type: ignore[union-attr]
     assert chunk_store.upsert_calls == 0
     assert chunk_store.points == {}
+    assert extractor.calls == 0
 

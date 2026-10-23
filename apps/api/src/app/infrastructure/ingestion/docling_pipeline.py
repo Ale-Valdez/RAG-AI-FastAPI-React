@@ -15,13 +15,16 @@ from app.infrastructure.ingestion.docling_chunks import (
     prepare_document,
 )
 
-_converter: Any = None
+_converters: dict[bool, Any] = {}
 
 
 class DoclingPdfPipeline:
     def __init__(self) -> None:
         self._prepared: PreparedDocument | None = None
         self._document: DoclingDocument | None = None
+
+    def count_pages(self, content: bytes) -> int:
+        return _pdf_page_count(content)
 
     def extract(self, content: bytes) -> ExtractedPdf:
         document, page_count = _convert_pdf(content)
@@ -44,34 +47,90 @@ class DoclingPdfPipeline:
 def _convert_pdf(content: bytes) -> tuple[DoclingDocument, int]:
     from docling.datamodel.base_models import DocumentStream
 
+    page_count = _pdf_page_count(content)
+    do_ocr = not _pdf_has_text_layer(content)
     source = DocumentStream(name="document.pdf", stream=BytesIO(content))
-    result = _get_converter().convert(source)
-    return result.document, len(result.pages)
+    result = _get_converter(do_ocr=do_ocr).convert(source)
+    document = result.document
+    # The conversion result keeps rendered page bitmaps. The document does not need them.
+    result.pages = []
+    del result
+    return document, page_count
 
 
-def _get_converter():  # noqa: ANN202
-    global _converter
-    if _converter is None:
-        from docling.datamodel.base_models import InputFormat
-        from docling.datamodel.pipeline_options import (
-            HeadingHierarchyOptions,
-            PdfPipelineOptions,
-        )
-        from docling.document_converter import DocumentConverter, PdfFormatOption
+def _pdf_page_count(content: bytes) -> int:
+    import pypdfium2 as pdfium
 
-        options = PdfPipelineOptions(
-            generate_parsed_pages=True,
-            heading_hierarchy_options=HeadingHierarchyOptions(
-                enabled=True,
-                use_bookmarks=True,
-                use_numbering=True,
-                use_style=True,
-            ),
-        )
-        artifacts = os.environ.get("DOCLING_ARTIFACTS_PATH")
-        if artifacts:
-            options.artifacts_path = Path(artifacts)
-        _converter = DocumentConverter(
-            format_options={InputFormat.PDF: PdfFormatOption(pipeline_options=options)}
-        )
-    return _converter
+    pdf = pdfium.PdfDocument(content)
+    try:
+        return len(pdf)
+    finally:
+        pdf.close()
+
+
+def _pdf_has_text_layer(content: bytes) -> bool:
+    """Digital PDFs skip OCR. OCR renders every page at 3x and is what exhausts RAM."""
+    import pypdfium2 as pdfium
+
+    pdf = pdfium.PdfDocument(content)
+    try:
+        sample = min(3, len(pdf))
+        for index in range(sample):
+            page = pdf[index]
+            textpage = page.get_textpage()
+            try:
+                if len(textpage.get_text_bounded().strip()) >= 20:
+                    return True
+            finally:
+                textpage.close()
+                page.close()
+        return False
+    finally:
+        pdf.close()
+
+
+def _get_converter(*, do_ocr: bool):  # noqa: ANN202
+    cached = _converters.get(do_ocr)
+    if cached is not None:
+        return cached
+
+    from docling.datamodel.base_models import InputFormat
+    from docling.datamodel.pipeline_options import (
+        AcceleratorOptions,
+        HeadingHierarchyOptions,
+        OcrAutoOptions,
+        PdfPipelineOptions,
+        TableFormerMode,
+        TableStructureOptions,
+    )
+    from docling.document_converter import DocumentConverter, PdfFormatOption
+
+    options = PdfPipelineOptions(
+        do_ocr=do_ocr,
+        force_backend_text=not do_ocr,
+        generate_parsed_pages=False,
+        images_scale=1.0,
+        layout_batch_size=1,
+        ocr_batch_size=1,
+        table_batch_size=1,
+        accelerator_options=AcceleratorOptions(num_threads=2, device="cpu"),
+        ocr_options=OcrAutoOptions(scale=1.0),
+        table_structure_options=TableStructureOptions(
+            do_cell_matching=True,
+            mode=TableFormerMode.FAST,
+        ),
+        heading_hierarchy_options=HeadingHierarchyOptions(
+            enabled=True,
+            use_bookmarks=True,
+            use_numbering=True,
+            use_style=True,
+        ),
+    )
+    artifacts = os.environ.get("DOCLING_ARTIFACTS_PATH")
+    if artifacts:
+        options.artifacts_path = Path(artifacts)
+    converter = DocumentConverter(
+        format_options={InputFormat.PDF: PdfFormatOption(pipeline_options=options)}
+    )
+    _converters[do_ocr] = converter
+    return converter
