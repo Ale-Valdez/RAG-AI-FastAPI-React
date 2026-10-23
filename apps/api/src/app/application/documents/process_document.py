@@ -72,14 +72,17 @@ class ProcessDocument:
                 document_id=document.id,
                 filename=document.filename,
             )
-            pages = self._extractor.extract_pages(content)
+            extracted = self._extractor.extract(content)
         except Exception:
             return self._fail(document)
 
-        if len(pages) > self._max_pages:
+        if extracted.page_count > self._max_pages:
             return self._fail(document)
 
-        chunks = self._chunker.chunk_pages(pages)
+        try:
+            chunks = self._chunker.chunk(extracted)
+        except Exception:
+            return self._fail(document)
         if not chunks:
             return self._fail(document)
 

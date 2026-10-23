@@ -8,13 +8,13 @@ from app.application.documents.process_document import ProcessDocument, ProcessO
 from app.domain.actor import Actor
 from app.domain.documents import Document, DocumentStatus
 from app.domain.errors import TenantIsolationError
-from app.domain.ports.ingestion import PageText
+from app.domain.ports.ingestion import ContentBlock, ExtractedPdf, TextChunker
 from app.domain.tenancy import TenantId
-from app.infrastructure.ingestion.page_chunker import PageAwareChunker
 from app.infrastructure.ingestion.qdrant_chunk_store import chunk_point_id
 from tests.fakes import (
     FakeEmbeddingGenerator,
     FakePdfTextExtractor,
+    FakeTextChunker,
     InMemoryChunkStore,
     InMemoryDocumentBytes,
     InMemoryDocumentRepository,
@@ -29,6 +29,7 @@ def _process(
     documents: InMemoryDocumentRepository | None = None,
     bytes_store: InMemoryDocumentBytes | None = None,
     extractor: FakePdfTextExtractor | None = None,
+    chunker: TextChunker | None = None,
     embeddings: FakeEmbeddingGenerator | None = None,
     chunk_store: InMemoryChunkStore | None = None,
     max_pages: int = 100,
@@ -58,7 +59,7 @@ def _process(
         docs,
         store,
         extractor or FakePdfTextExtractor(),
-        PageAwareChunker(),
+        chunker or FakeTextChunker(),
         emb,
         chunks,
         max_pages=max_pages,
@@ -111,6 +112,7 @@ def test_ingest_ready_with_payload_and_uuid5() -> None:
     assert commit_log == ["commit"]
     assert embeddings.committed_before_embed is True
     assert embeddings.calls == 1
+    assert embeddings.texts == [["hello world"]]
     assert chunk_store.upsert_calls == 1
     assert "doc-1:9" not in chunk_store.points
     point = chunk_store.points["doc-1:0"]
@@ -120,13 +122,24 @@ def test_ingest_ready_with_payload_and_uuid5() -> None:
     assert point["page"] == 0
     assert point["chunk_index"] == 0
     assert point["text"] == "hello world"
+    assert point["section_path"] == []
+    assert point["heading"] is None
+    assert point["page_end"] == 0
+    assert point["element_type"] == "text"
+    assert point["structure"] == "flat"
     assert chunk_point_id("doc-1", 0) == str(uuid5(_NAMESPACE, "doc-1:0"))
 
 
 def test_too_many_pages_fails_and_clears_points() -> None:
-    pages = [PageText(page=i, text=f"page {i}") for i in range(3)]
+    extracted = ExtractedPdf(
+        page_count=3,
+        blocks=[
+            ContentBlock(kind="text", level=None, text=f"page {index}", page=index)
+            for index in range(3)
+        ],
+    )
     use_case, documents, bytes_store, _, chunk_store = _process(
-        extractor=FakePdfTextExtractor(pages),
+        extractor=FakePdfTextExtractor(extracted),
         max_pages=2,
     )
     _pending_doc(documents, bytes_store)
@@ -156,7 +169,12 @@ def test_extract_fails_or_no_chunks() -> None:
     assert chunk_store.points == {}
 
     use_case, documents, bytes_store, _, chunk_store = _process(
-        extractor=FakePdfTextExtractor([PageText(page=0, text="   ")]),
+        extractor=FakePdfTextExtractor(
+            ExtractedPdf(
+                page_count=1,
+                blocks=[ContentBlock(kind="text", level=None, text="   ", page=0)],
+            )
+        ),
     )
     _pending_doc(documents, bytes_store)
     assert use_case.execute(_ACTOR, "doc-1") is ProcessOutcome.FAILED
@@ -186,7 +204,7 @@ def test_at_capacity_stays_pending_deferred() -> None:
         documents,
         bytes_store,
         extractor,
-        PageAwareChunker(),
+        FakeTextChunker(),
         embeddings,
         chunk_store,
         max_pages=100,
@@ -258,7 +276,7 @@ def test_deleted_after_claim_does_not_upsert() -> None:
         documents,
         bytes_store,
         FakePdfTextExtractor(),
-        PageAwareChunker(),
+        FakeTextChunker(),
         DropOnEmbed(),
         chunk_store,
         max_pages=100,
@@ -311,10 +329,26 @@ def test_upsert_failure_ends_failed_with_no_points() -> None:
     assert chunk_store.points == {}
 
 
+def test_chunk_failure_marks_failed() -> None:
+    class _RaisingChunker:
+        def chunk(self, extracted: ExtractedPdf) -> list[object]:
+            raise RuntimeError("chunk failed")
+
+    use_case, documents, bytes_store, _, chunk_store = _process(chunker=_RaisingChunker())
+    _pending_doc(documents, bytes_store)
+    outcome = use_case.execute(_ACTOR, "doc-1")
+    assert outcome is ProcessOutcome.FAILED
+    assert documents.get("doc-1").status is DocumentStatus.FAILED  # type: ignore[union-attr]
+    assert chunk_store.upsert_calls == 0
+
+
 def test_blank_pages_still_count_toward_page_limit() -> None:
-    pages = [PageText(page=i, text="   ") for i in range(3)]
+    extracted = ExtractedPdf(
+        page_count=3,
+        blocks=[ContentBlock(kind="text", level=None, text="visible body", page=0)],
+    )
     use_case, documents, bytes_store, _, chunk_store = _process(
-        extractor=FakePdfTextExtractor(pages),
+        extractor=FakePdfTextExtractor(extracted),
         max_pages=2,
     )
     _pending_doc(documents, bytes_store)
@@ -324,24 +358,3 @@ def test_blank_pages_still_count_toward_page_limit() -> None:
     assert chunk_store.upsert_calls == 0
     assert chunk_store.points == {}
 
-
-def test_real_chunker_splits_on_whitespace_and_skips_blank_pages() -> None:
-    long = "word " * 300
-    pages = [
-        PageText(page=0, text=long),
-        PageText(page=1, text="   "),
-        PageText(page=2, text="short"),
-    ]
-    chunks = PageAwareChunker().chunk_pages(pages)
-    assert all(len(chunk.text) <= 1000 for chunk in chunks)
-    assert chunks[-1].text == "short"
-    assert chunks[-1].page == 2
-    assert [chunk.chunk_index for chunk in chunks] == list(range(len(chunks)))
-    assert not any(chunk.page == 1 for chunk in chunks)
-
-
-def test_real_chunker_hard_cuts_page_with_no_spaces() -> None:
-    chunks = PageAwareChunker().chunk_pages([PageText(page=0, text="a" * 1500)])
-    assert len(chunks[0].text) == 1000
-    assert chunks[0].text == "a" * 1000
-    assert chunks[1].text == "a" * 500

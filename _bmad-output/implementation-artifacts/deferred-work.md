@@ -73,3 +73,31 @@
 - source_spec: `/home/ale/Escritorio/DEV/Own/AI-RAG/_bmad-output/implementation-artifacts/spec-chat-pdf-source-panel.md`
   summary: On a large screen the PDF stays in a column at most 22rem wide, with no zoom or download control.
   evidence: That column width predates this story. The spec required a readable height, which the shared row provides. A wider viewer is a separate layout change.
+
+- source_spec: `/home/ale/Escritorio/DEV/Own/AI-RAG/_bmad-output/implementation-artifacts/spec-docling-pdf-extraction-and-chunking.md`
+  summary: An extraction exception marks the document failed and does not log the error.
+  evidence: `_ingest` catches `Exception` from `extract` and returns `_fail` with no log. The baseline `extract_pages` path did the same.
+
+- source_spec: `/home/ale/Escritorio/DEV/Own/AI-RAG/_bmad-output/implementation-artifacts/spec-docling-pdf-extraction-and-chunking.md`
+  summary: A conversion that returns no pages would report `page_count` 0 and skip the page limit.
+  evidence: `page_count` is `len(result.pages)`. Whether Docling leaves that list empty when `generate_parsed_pages=True` was not executed. A converter run that prints `len(result.pages)` for a blank PDF would settle it.
+
+- source_spec: `/home/ale/Escritorio/DEV/Own/AI-RAG/_bmad-output/implementation-artifacts/spec-docling-pdf-extraction-and-chunking.md`
+  summary: The worker image may still install CUDA torch, and it may need `libgomp1` or RapidOCR weights that the model download does not fetch.
+  evidence: The Dockerfile installs a CPU torch wheel and then `.[worker]` from PyPI. The image was not built. `pip show torch` and a one-page convert inside that image would settle it.
+
+- source_spec: `/home/ale/Escritorio/DEV/Own/AI-RAG/_bmad-output/implementation-artifacts/spec-docling-pdf-extraction-and-chunking.md`
+  summary: Heading hierarchy options and `generate_parsed_pages` have no test.
+  evidence: `_get_converter` sets them. The default suite must not import `docling` or convert a PDF. A test marked off that run, on the worker extra, would settle it.
+
+- source_spec: `/home/ale/Escritorio/DEV/Own/AI-RAG/_bmad-output/implementation-artifacts/spec-docling-pdf-extraction-and-chunking.md`
+  summary: A partial Docling conversion can still be ingested.
+  evidence: `_convert_pdf` returns `result.document` without reading `result.status`. Whether `convert()` raises or returns a partial document was not executed.
+
+- source_spec: `/home/ale/Escritorio/DEV/Own/AI-RAG/_bmad-output/implementation-artifacts/spec-docling-pdf-extraction-and-chunking.md`
+  summary: A caption and table that together exceed 512 tokens might become separate chunks.
+  evidence: The covered table keeps its caption because the caption is on the table item. A table whose markdown plus caption exceeds 512 tokens was not built.
+
+- source_spec: `/home/ale/Escritorio/DEV/Own/AI-RAG/_bmad-output/implementation-artifacts/spec-docling-pdf-extraction-and-chunking.md`
+  summary: A scanned page may be ingested with no text when no OCR engine is selected.
+  evidence: Pipeline options do not set an OCR engine. OCR repair is out of scope. A scanned PDF through the worker converter would settle whether text is dropped.

@@ -7,7 +7,7 @@ from app.domain.actor import Actor
 from app.domain.chat import Conversation
 from app.domain.documents import Document, DocumentStatus
 from app.domain.identity import User, UserId
-from app.domain.ports.ingestion import PageText, TextChunk
+from app.domain.ports.ingestion import ContentBlock, ExtractedPdf, TextChunk
 from app.domain.ports.retrieval import RetrievedChunk
 from app.infrastructure.retrieval.hybrid import fuse_hits, lexical_score
 from app.domain.tenancy import Tenant, TenantId
@@ -137,19 +137,43 @@ class FakeDocumentJobQueue:
 class FakePdfTextExtractor:
     def __init__(
         self,
-        pages: list[PageText] | None = None,
+        extracted: ExtractedPdf | None = None,
         *,
         fail: bool = False,
     ) -> None:
-        self.pages = pages if pages is not None else [PageText(page=0, text="hello world")]
+        self.extracted = extracted if extracted is not None else _default_extracted()
         self.fail = fail
         self.calls = 0
 
-    def extract_pages(self, content: bytes) -> list[PageText]:
+    def extract(self, content: bytes) -> ExtractedPdf:
         self.calls += 1
         if self.fail:
             raise RuntimeError("extract failed")
-        return list(self.pages)
+        return self.extracted
+
+
+def _default_extracted() -> ExtractedPdf:
+    return ExtractedPdf(
+        page_count=1,
+        blocks=[ContentBlock(kind="text", level=None, text="hello world", page=0)],
+    )
+
+
+class FakeTextChunker:
+    def chunk(self, extracted: ExtractedPdf) -> list[TextChunk]:
+        chunks: list[TextChunk] = []
+        for block in extracted.blocks:
+            if not block.text.strip():
+                continue
+            chunks.append(
+                TextChunk(
+                    page=block.page,
+                    chunk_index=len(chunks),
+                    text=block.text,
+                    page_end=block.page,
+                )
+            )
+        return chunks
 
 
 class FakeEmbeddingGenerator:
@@ -227,6 +251,11 @@ class InMemoryChunkStore:
                 "page": chunk.page,
                 "chunk_index": chunk.chunk_index,
                 "text": chunk.text,
+                "section_path": list(chunk.section_path),
+                "heading": chunk.heading,
+                "page_end": chunk.resolved_page_end,
+                "element_type": chunk.element_type,
+                "structure": chunk.structure,
                 "vector": vector,
             }
 

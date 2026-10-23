@@ -85,6 +85,11 @@ class QdrantChunkStore:
                     "page": chunk.page,
                     "chunk_index": chunk.chunk_index,
                     "text": chunk.text,
+                    "section_path": list(chunk.section_path),
+                    "heading": chunk.heading,
+                    "page_end": chunk.resolved_page_end,
+                    "element_type": chunk.element_type,
+                    "structure": chunk.structure,
                 },
             )
             for chunk, vector in zip(chunks, vectors, strict=True)

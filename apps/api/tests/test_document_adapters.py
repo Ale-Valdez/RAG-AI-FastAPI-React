@@ -230,7 +230,7 @@ def test_deferred_task_retries_in_five_seconds(monkeypatch) -> None:  # noqa: AN
             return ProcessOutcome.DEFERRED
 
     monkeypatch.setattr(
-        "app.infrastructure.worker.tasks.build_process_document",
+        "app.bootstrap.worker.build_process_document",
         lambda: Runner(),
     )
     countdowns: list[int] = []
@@ -282,7 +282,18 @@ def test_qdrant_upsert_uses_uuid5_cosine_and_payload() -> None:
         tenant_id="t1",
         document_id="doc-1",
         filename="handbook.pdf",
-        chunks=[TextChunk(page=0, chunk_index=0, text="hello")],
+        chunks=[
+            TextChunk(
+                page=1,
+                chunk_index=0,
+                text="hello",
+                section_path=("Policy", "Scope"),
+                heading="Scope",
+                page_end=3,
+                element_type="table",
+                structure="headed",
+            )
+        ],
         vectors=[[0.1, 0.2]],
     )
     store.delete_by_document(tenant_id="t1", document_id="doc-1")
@@ -300,9 +311,14 @@ def test_qdrant_upsert_uses_uuid5_cosine_and_payload() -> None:
         "tenant_id": "t1",
         "document_id": "doc-1",
         "filename": "handbook.pdf",
-        "page": 0,
+        "page": 1,
         "chunk_index": 0,
         "text": "hello",
+        "section_path": ["Policy", "Scope"],
+        "heading": "Scope",
+        "page_end": 3,
+        "element_type": "table",
+        "structure": "headed",
     }
     assert client.deletes[0][0] == "chunks"
     selector = client.deletes[0][1]
@@ -794,42 +810,16 @@ def test_openai_embeddings_orders_by_index(monkeypatch) -> None:  # noqa: ANN001
     assert vectors == [[1.0, 1.0], [2.0, 2.0]]
 
 
-def test_pypdf_extractor_zero_based_pages_including_blank(monkeypatch) -> None:  # noqa: ANN001
-    from app.infrastructure.ingestion.pypdf_extractor import PypdfTextExtractor
-
-    class FakePage:
-        def __init__(self, text: str | None) -> None:
-            self._text = text
-
-        def extract_text(self) -> str | None:
-            return self._text
-
-    class FakeReader:
-        def __init__(self, _stream: object) -> None:
-            self.pages = [FakePage("first"), FakePage(None), FakePage("third")]
-
-    monkeypatch.setattr(
-        "app.infrastructure.ingestion.pypdf_extractor.PdfReader",
-        FakeReader,
-    )
-    pages = PypdfTextExtractor().extract_pages(b"%PDF")
-    assert [(page.page, page.text) for page in pages] == [
-        (0, "first"),
-        (1, ""),
-        (2, "third"),
-    ]
-
-
 def test_session_bound_commit_while_processing_before_extract(monkeypatch) -> None:  # noqa: ANN001
     from app.application.documents.process_document import ProcessOutcome
     from app.bootstrap.worker import SessionBoundProcessDocument
     from app.domain.actor import Actor
     from app.domain.documents import Document, DocumentStatus
     from app.domain.tenancy import TenantId
-    from app.infrastructure.ingestion.page_chunker import PageAwareChunker
     from tests.fakes import (
         FakeEmbeddingGenerator,
         FakePdfTextExtractor,
+        FakeTextChunker,
         InMemoryChunkStore,
         InMemoryDocumentBytes,
         InMemoryDocumentRepository,
@@ -876,21 +866,21 @@ def test_session_bound_commit_while_processing_before_extract(monkeypatch) -> No
     monkeypatch.setattr("app.bootstrap.worker.SqlAlchemyDocumentRepository", Repo)
 
     extractor = FakePdfTextExtractor()
-    original_extract = extractor.extract_pages
+    original_extract = extractor.extract
 
-    def extract_pages(content: bytes):  # noqa: ANN202
+    def extract(content: bytes):  # noqa: ANN202
         nonlocal extract_after_commit
         assert commit_statuses == [DocumentStatus.PROCESSING]
         extract_after_commit = True
         return original_extract(content)
 
-    extractor.extract_pages = extract_pages  # type: ignore[method-assign]
+    extractor.extract = extract  # type: ignore[method-assign]
 
     outcome = SessionBoundProcessDocument(
         open_session=lambda: FakeSession(),  # type: ignore[arg-type,return-value]
         bytes_store=bytes_store,  # type: ignore[arg-type]
         extractor=extractor,  # type: ignore[arg-type]
-        chunker=PageAwareChunker(),
+        chunker=FakeTextChunker(),
         embeddings=FakeEmbeddingGenerator(),  # type: ignore[arg-type]
         chunk_store=InMemoryChunkStore(),  # type: ignore[arg-type]
         max_pages=100,
@@ -908,10 +898,10 @@ def test_session_bound_commits_failed_status(monkeypatch) -> None:  # noqa: ANN0
     from app.domain.actor import Actor
     from app.domain.documents import Document, DocumentStatus
     from app.domain.tenancy import TenantId
-    from app.infrastructure.ingestion.page_chunker import PageAwareChunker
     from tests.fakes import (
         FakeEmbeddingGenerator,
         FakePdfTextExtractor,
+        FakeTextChunker,
         InMemoryChunkStore,
         InMemoryDocumentBytes,
         InMemoryDocumentRepository,
@@ -960,7 +950,7 @@ def test_session_bound_commits_failed_status(monkeypatch) -> None:  # noqa: ANN0
         open_session=lambda: FakeSession(),  # type: ignore[arg-type,return-value]
         bytes_store=bytes_store,  # type: ignore[arg-type]
         extractor=FakePdfTextExtractor(fail=True),  # type: ignore[arg-type]
-        chunker=PageAwareChunker(),
+        chunker=FakeTextChunker(),
         embeddings=FakeEmbeddingGenerator(),  # type: ignore[arg-type]
         chunk_store=InMemoryChunkStore(),  # type: ignore[arg-type]
         max_pages=100,

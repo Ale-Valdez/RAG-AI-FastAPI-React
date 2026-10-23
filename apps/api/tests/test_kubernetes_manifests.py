@@ -5,6 +5,7 @@ from pathlib import Path
 _REPO_ROOT = Path(__file__).resolve().parents[3]
 _MANIFEST_DIR = _REPO_ROOT / "deploy" / "kubernetes"
 _IMAGE = "image: ai-rag-api:latest"
+_WORKER_IMAGE = "image: ai-rag-worker:latest"
 _CELERY_COMMAND = """          command:
             - celery
             - -A
@@ -38,7 +39,7 @@ def test_kubernetes_manifests_share_image_secret_and_amazon_s3() -> None:
         for line in text.splitlines()
         if line.strip().startswith("image:")
     ]
-    assert images == [_IMAGE, _IMAGE, _IMAGE]
+    assert images == [_IMAGE, _IMAGE, _WORKER_IMAGE]
 
     assert "kind: Namespace" in manifests["namespace.yaml"]
     assert "name: ai-rag" in manifests["namespace.yaml"]
@@ -68,7 +69,12 @@ def test_kubernetes_manifests_share_image_secret_and_amazon_s3() -> None:
         assert "envFrom:" in text
         assert "secretRef:" in text
         assert "name: ai-rag-env" in text
-        assert _IMAGE in text
+        if name == "worker.yaml":
+            assert _WORKER_IMAGE in text
+            assert "DOCLING_ARTIFACTS_PATH" in text
+            assert "/opt/docling/models" in text
+        else:
+            assert _IMAGE in text
 
 
 def test_kubernetes_api_probes_worker_celery_and_migrate_job() -> None:
@@ -122,3 +128,6 @@ def test_compose_keeps_garage_s3_and_celery_command() -> None:
         "command: celery -A app.infrastructure.worker.celery_app:celery_app worker --loglevel=INFO"
         in compose
     )
+    assert "target: api" in compose
+    assert "target: worker" in compose
+    assert "DOCLING_ARTIFACTS_PATH: /opt/docling/models" in compose

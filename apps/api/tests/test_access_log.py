@@ -342,7 +342,7 @@ def test_finished_job_logs_ready_or_failed(capops: pytest.LogCaptureFixture, mon
     def build() -> _Outcome:
         return _Outcome(next(outcomes))
 
-    monkeypatch.setattr("app.infrastructure.worker.tasks.build_process_document", build)
+    monkeypatch.setattr("app.bootstrap.worker.build_process_document", build)
 
     with _pushed({CORRELATION_HEADER: "cid-ready"}):
         process_document.run("tenant-ready", "user-ready", "doc-ready")
@@ -381,7 +381,7 @@ def test_deferred_skipped_and_missing_header(
         def execute(self, actor: object, document_id: str) -> ProcessOutcome:
             return outcome
 
-    monkeypatch.setattr("app.infrastructure.worker.tasks.build_process_document", lambda: Runner())
+    monkeypatch.setattr("app.bootstrap.worker.build_process_document", lambda: Runner())
     countdowns: list[int] = []
 
     def fake_retry(*_args: object, countdown: int | None = None, **_kwargs: object) -> None:
@@ -430,7 +430,7 @@ def test_exception_before_outcome_does_not_log(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
     monkeypatch.setattr(
-        "app.infrastructure.worker.tasks.build_process_document",
+        "app.bootstrap.worker.build_process_document",
         lambda: _Boom(),
     )
     with _pushed({CORRELATION_HEADER: "cid-boom"}), pytest.raises(RuntimeError, match="secret-exception"):

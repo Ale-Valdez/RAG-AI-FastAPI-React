@@ -473,10 +473,10 @@ def test_worker_after_processing_commit_sees_only_actor_rows(
             return None
 
     class Unused:
-        def extract_pages(self, content: bytes) -> list[str]:
+        def extract(self, content: bytes) -> list[str]:
             raise AssertionError("extractor should not run")
 
-        def chunk_pages(self, pages: list[str]) -> list[object]:
+        def chunk(self, extracted: object) -> list[object]:
             raise AssertionError("chunker should not run")
 
         def embed(self, texts: list[str]) -> list[list[float]]:

@@ -51,6 +51,7 @@ services:
   api:
     build:
       context: ./apps/api
+      target: api
     environment:
       APP_NAME: AI-RAG
       API_CORS_ORIGINS: http://localhost:5173
@@ -85,9 +86,11 @@ services:
   worker:
     build:
       context: ./apps/api
+      target: worker
     command: celery -A app.infrastructure.worker.celery_app:celery_app worker --loglevel=INFO
     environment:
       APP_NAME: AI-RAG
+      DOCLING_ARTIFACTS_PATH: /opt/docling/models
       DATABASE_URL: postgresql://app:app@postgres:5432/app
       REDIS_URL: redis://redis:6379/0
       QDRANT_URL: http://qdrant:6333

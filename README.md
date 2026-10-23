@@ -46,7 +46,7 @@ docker compose exec api python -m app.cli bootstrap
 
 ## Managed Postgres, Amazon S3, and Kubernetes
 
-`deploy/kubernetes/` runs namespace `ai-rag` against external Postgres, Redis, Qdrant, and one Amazon S3 bucket. `api`, `worker`, and Job `ai-rag-migrate` share image `ai-rag-api:latest` and load Secret `ai-rag-env` with `envFrom`. Replace that image with the API image you push. The Secret file is placeholders only.
+`deploy/kubernetes/` runs namespace `ai-rag` against external Postgres, Redis, Qdrant, and one Amazon S3 bucket. `api` and Job `ai-rag-migrate` use image `ai-rag-api:latest`. The worker uses `ai-rag-worker:latest`, the image built with `docker build --target worker`, and sets `DOCLING_ARTIFACTS_PATH`. All three load Secret `ai-rag-env` with `envFrom`. Replace those image names with the images you push. The Secret file is placeholders only.
 
 `DATABASE_URL` is the only database setting. The login user is `app`. Put `sslmode` in that URL when the managed server requires TLS:
 

@@ -15,13 +15,16 @@ spec:
     spec:
       containers:
         - name: worker
-          image: ai-rag-api:latest
+          image: ai-rag-worker:latest
           command:
             - celery
             - -A
             - app.infrastructure.worker.celery_app:celery_app
             - worker
             - --loglevel=INFO
+          env:
+            - name: DOCLING_ARTIFACTS_PATH
+              value: /opt/docling/models
           envFrom:
             - secretRef:
                 name: ai-rag-env

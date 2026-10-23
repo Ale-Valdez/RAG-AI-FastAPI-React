@@ -3,10 +3,10 @@ from __future__ import annotations
 from app.application.documents.process_document import ProcessDocument, ProcessOutcome
 from app.bootstrap.persistence import LazySessionFactory
 from app.domain.actor import Actor
+from app.domain.ports.ingestion import PdfTextExtractor, TextChunker
 from app.infrastructure.config.settings import Settings, load_settings
+from app.infrastructure.ingestion.docling_pipeline import DoclingPdfPipeline
 from app.infrastructure.ingestion.openai_embeddings import OpenAIEmbeddingGenerator
-from app.infrastructure.ingestion.page_chunker import PageAwareChunker
-from app.infrastructure.ingestion.pypdf_extractor import PypdfTextExtractor
 from app.infrastructure.ingestion.qdrant_chunk_store import QdrantChunkStore
 from app.infrastructure.persistence.document_repository import SqlAlchemyDocumentRepository
 from app.infrastructure.persistence.session import clear_rls_session, pin_rls_session
@@ -18,8 +18,8 @@ class SessionBoundProcessDocument:
         self,
         open_session: LazySessionFactory,
         bytes_store: S3DocumentBytes,
-        extractor: PypdfTextExtractor,
-        chunker: PageAwareChunker,
+        extractor: PdfTextExtractor,
+        chunker: TextChunker,
         embeddings: OpenAIEmbeddingGenerator,
         chunk_store: QdrantChunkStore,
         *,
@@ -71,11 +71,12 @@ def build_process_document(settings: Settings | None = None) -> SessionBoundProc
         secret_access_key=loaded.s3_secret_access_key,
         use_path_style=loaded.s3_use_path_style,
     )
+    pipeline = DoclingPdfPipeline()
     return SessionBoundProcessDocument(
         LazySessionFactory(loaded.database_url),
         bytes_store,
-        PypdfTextExtractor(),
-        PageAwareChunker(),
+        pipeline,
+        pipeline,
         OpenAIEmbeddingGenerator(
             api_key=loaded.openai_api_key,
             model=loaded.openai_embed_model,
