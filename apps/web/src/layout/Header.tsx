@@ -1,4 +1,4 @@
-import { Link, NavLink } from "react-router-dom";
+import { NavLink, useLocation } from "react-router-dom";
 
 export default function Header({
     token,
@@ -9,9 +9,13 @@ export default function Header({
     me: any;
     onSignOut: () => void;
 }) {
+  const isChat = useLocation().pathname.startsWith("/chat");
+
   return (
     <header className="bg-white shadow-md py-0 max-h-16">
-        <div className="grid grid-cols-3 items-center max-w-7xl mx-auto px-4 sm:px-6 lg:px-8">
+        <div
+          className={`mx-auto grid grid-cols-3 items-center px-4 sm:px-6 lg:px-8 max-w-7xl`}
+        >
             <div className="col-span-1"> 
                 <h1>AI-RAG</h1>
             </div>

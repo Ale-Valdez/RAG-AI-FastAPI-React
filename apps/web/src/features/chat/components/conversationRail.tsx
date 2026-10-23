@@ -4,6 +4,7 @@ import type { ConversationSummary } from "../api";
 
 type ConversationRailProps = {
   conversations: ConversationSummary[];
+  hidden?: boolean;
   onCollapse: () => void;
 };
 
@@ -48,11 +49,17 @@ function formatTimestamp(value: string): string {
   }).format(date);
 }
 
-export default function ConversationRail({ conversations, onCollapse }: ConversationRailProps) {
+export default function ConversationRail({
+  conversations,
+  hidden = false,
+  onCollapse,
+}: ConversationRailProps) {
   return (
     <aside
       id="conversation-rail"
-      className="card flex h-full max-h-48 min-h-0 min-w-0 flex-col overflow-hidden lg:max-h-none"
+      className={`card h-full max-h-48 min-h-0 min-w-0 flex-col overflow-hidden lg:max-h-none ${
+        hidden ? "hidden" : "flex"
+      }`}
     >
       <div className="mb-2 flex items-center justify-between gap-2">
         <h2 className="m-0 text-lg font-bold">Conversations</h2>

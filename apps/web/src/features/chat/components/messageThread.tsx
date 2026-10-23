@@ -107,15 +107,15 @@ function MessageList({
       ) : null}
       {messages.map((message, index) =>
         message.role === "user" ? (
-          <article key={`${message.role}-${index}`} className="flex justify-end">
-            <div className="max-w-[min(100%,36rem)]">
-              <p className="m-0 rounded-[1.25rem] bg-blue-500 px-4 py-2 whitespace-pre-wrap text-white">
+          <article key={`${message.role}-${index}`} className="flex min-w-0 justify-end">
+            <div className="min-w-0 max-w-[min(100%,36rem)]">
+              <p className="m-0 rounded-[1.25rem] bg-blue-500 px-4 py-2 whitespace-pre-wrap break-words text-white">
                 {message.content}
               </p>
             </div>
           </article>
         ) : (
-          <article key={`${message.role}-${index}`} className="max-w-3xl text-gray-900">
+          <article key={`${message.role}-${index}`} className="max-w-3xl min-w-0 break-words text-gray-900">
             <AssistantMarkdown content={message.content} />
             <SourceCitations
               sources={message.sources}
